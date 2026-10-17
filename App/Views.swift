@@ -196,13 +196,14 @@ struct RootView:View {
             else if model.controller.state == .userPaused { resume=true }
             else { model.start() }
         } label: {
-            Label(model.isFollowing ? "暂停跟随" : "开始／恢复跟随",systemImage:model.isFollowing ? "pause.fill" : "play.fill")
+            Label(dynamicType.isAccessibilitySize ? (model.isFollowing ? "暂停" : (model.controller.state == .userPaused ? "恢复" : "开始")) : (model.isFollowing ? "暂停跟随" : "开始／恢复跟随"),systemImage:model.isFollowing ? "pause.fill" : "play.fill")
                 .font(.callout.weight(.semibold)).multilineTextAlignment(.center)
                 .frame(maxWidth:.infinity,minHeight:44).padding(.vertical,4)
         }
         .buttonStyle(.borderedProminent).buttonBorderShape(.roundedRectangle(radius:18))
         .tint(HeadLinkUI.accent).foregroundStyle(.black)
         .disabled(!model.isFollowing && !model.canStart)
+        .accessibilityLabel(model.isFollowing ? "暂停跟随" : "开始／恢复跟随")
         .accessibilityIdentifier(model.isFollowing ? "alwaysPause" : "followToggle")
     }
     private var recordButton:some View {
