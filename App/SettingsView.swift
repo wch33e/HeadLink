@@ -25,7 +25,12 @@ struct SettingsView:View {
                     Button {
                         // Preserve the original explicit pause attached to this action.
                         model.pause(); readiness=true
-                    } label: { SettingTitle(title:"跟随状态与诊断",icon:"waveform.path") }
+                    } label: {
+                        VStack(alignment:.leading,spacing:4) {
+                            SettingTitle(title:"跟随状态与诊断",icon:"waveform.path")
+                            Text("打开此页会暂停跟随").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
                     .accessibilityIdentifier("openReadiness")
                     NavigationLink { LiveDiagnosticsView(model:model) } label: {
                         SettingTitle(title:"实时数值与图传",icon:"chart.xyaxis.line")

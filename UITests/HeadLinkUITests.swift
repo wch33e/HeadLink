@@ -64,7 +64,7 @@ import XCTest
         let item=app.switches[id]
         if item.value as? String != value {
             // SwiftUI exposes the entire settings row as the switch's AX frame; tap its control end.
-            item.coordinate(withNormalizedOffset:CGVector(dx:0.9,dy:0.5)).tap()
+            item.coordinate(withNormalizedOffset:.init(dx:0.9,dy:0.5)).tap()
         }
         let changed=XCTNSPredicateExpectation(predicate:NSPredicate(format:"value == %@",value),object:item)
         let result=XCTWaiter.wait(for:[changed],timeout:5)
