@@ -54,7 +54,7 @@ struct RootView:View {
                     HStack(spacing:16) {
                         if leftHanded { accessibleControls.frame(width:min(280,geometry.size.width*0.4)) }
                         ScrollView {
-                            VStack(spacing:12) { topBar; followState; messages(maxHeight:geometry.size.height) }
+                            VStack(spacing:12) { topBar; followState; recordingIndicators; messages(maxHeight:geometry.size.height) }
                         }
                         if !leftHanded { accessibleControls.frame(width:min(280,geometry.size.width*0.4)) }
                     }.padding(16)
@@ -62,6 +62,7 @@ struct RootView:View {
                     VStack(spacing:12) {
                         topBar
                         followState
+                        recordingIndicators
                         Spacer(minLength:0)
                         VStack(spacing:12) {
                             messages(maxHeight:geometry.size.height > geometry.size.width ? 152 : 88)
@@ -123,25 +124,23 @@ struct RootView:View {
             if crosshair {
                 Image(systemName:"plus").font(.body.weight(.ultraLight)).foregroundStyle(.white.opacity(0.6)).accessibilityHidden(true)
             }
-            VStack {
-                HStack(alignment:.bottom) {
-                    VStack(alignment:.leading,spacing:8) {
-                        if model.camera.actualRecording == true || model.camera.recordPending != nil {
-                            Group {
-                                if model.camera.actualRecording == true {
-                                    Label("REC \(model.camera.status.recordElapsedSec)s",systemImage:"record.circle.fill")
-                                        .foregroundStyle(.red).monospacedDigit()
-                                } else { Text("等待录像确认…").foregroundStyle(.orange) }
-                            }.padding(8).background(.black.opacity(0.75),in:RoundedRectangle(cornerRadius:12))
-                        }
-                        LiveRangeIndicator(model:model)
-                    }
-                    .font(.caption.weight(.medium))
-                    Spacer(minLength:0)
-                }.padding(.horizontal,20).padding(.top,120)
-                Spacer(minLength:0)
-            }.allowsHitTesting(false)
         }
+    }
+    private var recordingIndicators:some View {
+        HStack(alignment:.top) {
+            VStack(alignment:.leading,spacing:8) {
+                if model.camera.actualRecording == true || model.camera.recordPending != nil {
+                    Group {
+                        if model.camera.actualRecording == true {
+                            Label("REC \(model.camera.status.recordElapsedSec)s",systemImage:"record.circle.fill")
+                                .foregroundStyle(.red).monospacedDigit()
+                        } else { Text("等待录像确认…").foregroundStyle(.orange) }
+                    }.padding(8).background(.black.opacity(0.75),in:RoundedRectangle(cornerRadius:12))
+                }
+                LiveRangeIndicator(model:model)
+            }.font(.caption.weight(.medium))
+            Spacer(minLength:0)
+        }.allowsHitTesting(false)
     }
 
     @ViewBuilder private func messages(maxHeight:CGFloat) -> some View {
@@ -357,10 +356,10 @@ private struct LiveRangeIndicator:View {
     @Bindable var model:AppModel
     var body:some View {
         let _=model.telemetryRevision
-        Label("不可达：已限位，未缩放倍率",systemImage:"exclamationmark.triangle.fill")
-            .foregroundStyle(.orange).padding(8).background(.black.opacity(0.75),in:RoundedRectangle(cornerRadius:12))
-            .opacity(model.controller.output?.limitedByRange == true ? 1 : 0)
-            .accessibilityHidden(model.controller.output?.limitedByRange != true)
+        if model.controller.output?.limitedByRange == true {
+            Label("不可达：已限位，未缩放倍率",systemImage:"exclamationmark.triangle.fill")
+                .foregroundStyle(.orange).padding(8).background(.black.opacity(0.75),in:RoundedRectangle(cornerRadius:12))
+        }
     }
 }
 private struct SecureCredential: View {

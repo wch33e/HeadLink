@@ -64,3 +64,7 @@ HeadLinkApp、AppModel、PocketCamera、PocketCamera+Video、HeadphoneMotion、S
 ## 材质依据
 
 SDK仍为Xcode26.1.1，部署目标iOS17。iOS26分支使用Apple原生[glassEffect](https://developer.apple.com/documentation/swiftui/view/glasseffect(_:in:))，旧系统regularMaterial；减少透明度用实体系统背景，减少动态效果用稳定系统材质。无自定义shader、逐帧采样或第三方UI库。监看保留深色机制，未新增主题。
+
+## 动作接线复核
+
+已逐项复核原动作调用：校准1、清除校准3、start2、耳机重试2、导出2，以及相机连接/搜索/断开/录像/模式查询/Wi-Fi验证/图传重试各1处；与基线相同。pause调用由6处变5处，唯一差异是原重复底栏暂停与主暂停合并，运行时仍直接可点；其余暂停前置动作和恢复确认保留。普通设备页和更多导航不增加业务动作。

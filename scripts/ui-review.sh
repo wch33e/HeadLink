@@ -16,6 +16,7 @@ print(item['udid'])
 PY
 )
 test_destination="platform=iOS Simulator,id=$review_device"
+xcrun simctl bootstatus "$review_device" -b
 prune_recordings() {
   python3 - "$1" <<'PY'
 import pathlib,sys
@@ -34,6 +35,7 @@ if [ "$review_status" -ne 0 ]; then
   exit "$review_status"
 fi
 # Exercise the same real navigation at the system accessibility text size, without App launch hooks.
+xcrun simctl bootstatus "$review_device" -b
 xcrun simctl ui "$review_device" content_size accessibility-extra-extra-extra-large
 large_text_status=0
 xcodebuild -project HeadLink.xcodeproj -scheme HeadLinkUIReview -destination "$test_destination" \
