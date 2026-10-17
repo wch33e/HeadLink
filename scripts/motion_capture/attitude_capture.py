@@ -132,7 +132,9 @@ def main():
             except subprocess.TimeoutExpired:
                 subprocess.run(['sudo','-n','kill','-TERM',str(proc.pid)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         if thread:thread.join(timeout=2)
-        if created:subprocess.run(['sudo','-n','/Library/Apple/usr/bin/rvictl','-x',udid],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=15)
+        if created:
+            try:subprocess.run(['sudo','-n','/Library/Apple/usr/bin/rvictl','-x',udid],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=15)
+            except subprocess.TimeoutExpired:errors.append('rvi_cleanup_timeout_identifier_omitted')
         output={'schema':1,'purpose':'qualify_pose_semantics_before_mobile_control','captureSucceeded':bool(rows) and not errors,
           'timeBasis':'packet_capture_time_NOT_sensor_measurement_time; no bounded_one_way_delay',
           'groundTruth':'stage labels are instructions, not independent angular measurements',
@@ -147,4 +149,6 @@ def main():
 if __name__=='__main__':
     try:sys.exit(main())
     except KeyboardInterrupt:sys.exit(130)
+    except subprocess.TimeoutExpired:print('本机USB命令超时，设备编号已省略；不需要重新校准或安装App。',file=sys.stderr);sys.exit(1)
+    except subprocess.CalledProcessError:print('本机采集命令未成功；命令参数和设备编号已省略。',file=sys.stderr);sys.exit(1)
     except Exception as error:print(str(error),file=sys.stderr);sys.exit(1)
