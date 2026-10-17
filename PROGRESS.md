@@ -91,3 +91,12 @@
 - [产物](https://github.com/wch33e/HeadLink/actions/runs/39009820676/artifacts/12092815403)已下载独立核验：版本1.2.0（8）、org.headlink.personal、最低iOS17.0、iphoneos26.1 SDK/arm64、未签名、无provisioning profile；archive CRC及原已测配置资源逐字相同检查通过。
 - SHA256 ef39939b6e0e7b31f48eede78cd39cd98018a628120a6b764e6dc5ff5002f9f5，与metadata和SHA256SUMS一致；inspection.json随IPA保存，hardwareValidated=false。后续文档提交不改已构建App源码。
 - 沿用原Sideloadly账户/身份覆盖更新。无额外付费服务或计费设置变更。实际30°/复合运动/连续5分钟结果待用户提供，移动补偿仍未验证。
+
+## 2026-10-17 移动机身数据核实（隔离研究分支）
+
+- 用户确认固定版1.2.0（8）正常；保存baseline-fixed-1.2.0-build-8及原IPA，不修改既有App/Sources/Tests或连接/录像/视频实现。
+- 补查到同包@24…@39镜头四元数，纠正“只有关节角”的不完整描述；尚无已核实完整机身姿态或完整独立关节旋转，也没有相机测量时间/时钟映射。详见docs/MOVING_BODY_FEASIBILITY.md，不冒称软件补偿已接通。
+- 已集中询问实际安装与手机能否刚性同架；尚待答复。旧诊断不含原始相机四元数，不能以重复校准解除此阻塞。
+- 已完成隔离research/moving-body-prototype，15项数学/同步/不可观测性/限位恢复测试通过；固定版55项回归通过；姿态采集解析器12项通过；本机tcpdump合成包离线过滤通过。各组不合并声称为已集成移动功能。
+- 准备70秒USB被动姿态采集，可继续使用现有App，不安装调查版。只保存有效姿态，不发角度命令、不保存视频/设备编号/密码；当前USB无iPhone，真实采集未运行。
+- 本轮不发布新IPA，不花云端额度重复构建未接通移动功能的App。后续需先确认机身数据/安装外参及控制参考，再接入完整链路、云端构建并交付一次完整更新。
