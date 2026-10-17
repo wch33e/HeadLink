@@ -30,11 +30,15 @@ struct SettingsView:View {
                 }
                 Section("本地诊断") {
                     Toggle("记录诊断",isOn:$recordDiagnostics)
-                    Text("最多保留最近约10分钟的角度、状态和频率；正式跟随配置就绪后自动记录。无视频、设备标识或网络密码；退出应用后不保留记录。").font(.footnote)
+                    Text("角度记录最多约10分钟；故障分层记录最多1500条（通常约5分钟），含断连前及前台断连后30秒、网络路径事实和原始50字节姿态回报。无视频、设备标识或网络密码；SSID与独立机身姿态不可用，不以目标值代替实测。退出应用后不保留。").font(.footnote)
+                    Button("标记A组：暂停跟随，仅预览移动") { model.markComparison("A") }
+                    Button("标记B组：跟随开启时移动对照") { model.markComparison("B") }
+                    Text("B组按钮仅标记，不启动运动。关闭设置后由你明确校准／开始，再重复A组动作。B组用于复现旧固定模式故障，不代表挂脖补偿已接通。").font(.footnote)
                     Button("生成脱敏诊断文件") { model.exportDiagnostics() }
                     if let url=model.exportURL { ShareLink("分享 JSON",item:url) }
                     Button("清除记录",role:.destructive) {
                         model.diagnostics=[]
+                        model.incidentHistory=[]
                         if let url=model.exportURL { try? FileManager.default.removeItem(at:url) }
                         model.exportURL=nil
                     }
@@ -42,7 +46,7 @@ struct SettingsView:View {
                 Section("关于 HeadLink") {
                     LabeledContent("版本",value:(Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "开发构建"))
                     Text("原生 iPhone 工具，数据在本地处理。无需账号，无广告，不上传运动数据或相机画面。")
-                    Text("用户已确认原局部范围内头部联动通过。1.2.0移除实验窗口，正式连接、校准、开始；大角度响应、复合转头及连续稳定性仍需本版真机核对。").foregroundStyle(.orange)
+                    Text("用户已确认1.2.0（8）固定机身1∶1正常。本版隔离图传与控制故障、增加移动故障诊断；挂脖补偿尚缺已核实的完整机身姿态，不作为已完成功能。").foregroundStyle(.orange)
                     NavigationLink("开源许可与署名") { ScrollView { Text(licenseText).font(.footnote).textSelection(.enabled).padding() }.navigationTitle("开源许可") }
                     Text("使用 OpenCine / OpenPocketCine 的 Apache-2.0 开源实现。与 Apple、DJI 无官方关联。")
                 }

@@ -12,11 +12,13 @@ public struct VideoPipelineSample:Codable,Sendable {
     public let decoderFailed:Bool
     public let awaitingKeyframe:Bool
     public let cameraSetAt:Double?
+    public let controlFrameAt:Double?
     public init(now:Double,startedAt:Double,connected:Bool,transportReady:Bool,packetAt:Double?,accessUnitAt:Double?,
-                decoderOutputAt:Double? = nil,presentedAt:Double?,decoderFailed:Bool = false,awaitingKeyframe:Bool = false,cameraSetAt:Double? = nil) {
+                decoderOutputAt:Double? = nil,presentedAt:Double?,decoderFailed:Bool = false,awaitingKeyframe:Bool = false,cameraSetAt:Double? = nil,controlFrameAt:Double? = nil) {
         self.now=now; self.startedAt=startedAt; self.connected=connected; self.transportReady=transportReady
         self.packetAt=packetAt; self.accessUnitAt=accessUnitAt; self.decoderOutputAt=decoderOutputAt
         self.presentedAt=presentedAt; self.decoderFailed=decoderFailed; self.awaitingKeyframe=awaitingKeyframe; self.cameraSetAt=cameraSetAt
+        self.controlFrameAt=controlFrameAt
     }
     public func fresh(_ stamp:Double?,within seconds:Double) -> Bool {
         stamp.map { $0 <= now && now-$0 < seconds } ?? false
@@ -60,7 +62,15 @@ public struct VideoRecoveryPolicy:Sendable {
             guard attempts < 2 else { state = .failed; reason="decoder_still_stalled_transport_kept"; return nil }
             action = input.fresh(input.decoderOutputAt,within:2) && attempts == 0 ? .repairPresentation : .repairDecoderAndEnable
         } else if attempts < 2 { action = .registerAndEnable }
-        else { action = .rebuildSharedTransport }
+        else {
+            // A video-only failure must not destroy a working control session or calibration.
+            // Leave the last repair slot unused; if control later actually goes stale the shared
+            // repair is still available. Manual retry explicitly starts a new bounded cycle.
+            guard !input.fresh(input.controlFrameAt,within:3) else {
+                state = .stalled; reason += ":control_alive_shared_transport_kept"; return nil
+            }
+            action = .rebuildSharedTransport
+        }
         attempts += 1; lastActionAt=input.now; state = .recovering
         return action
     }

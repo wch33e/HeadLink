@@ -1,8 +1,15 @@
 # HeadLink 进度检查点
 
+## 最新：2026-10-17 挂脖故障优先调查
+
+- 用户明确Pocket 4挂脖、iPhone分离；固定机身1.2.0（8）已真机通过，标签和main保留。安装方式不再是待答问题。
+- 独立分支修复两条扩大故障的路径：视频失败但控制有新回报时禁止共享UDP重建；flow健康异常但控制/视频仍有新收包时保留会话，发送不可用仍暂停运动。并保留真正断连原因，补充清理前/前台断连后分层快照和原始姿态包；不改配对和录像命令。
+- 核心63项（含原固定55项）本地/云端通过；15项数学研究与12项解析器测试单独通过；Vendor236文件不变。完整iPhoneOS编译run #9成功，源码8c5094ef9a0546db9edb7275aad3c652af35ebc7。1.2.1（9）内部IPA经独立核验，bundle ID不变，SHA256 518a53ccfd80fd96425153f5393dcf7782d4c52644a6db9ddc38114ce6869235。
+- 尚无本次移动断连日志，不能把源码风险当作真机根因。挂脖补偿未接通，镜头四元数不冒充机身姿态；完整关节定义、倾斜控制参考和动态时间证据待核实。无需先安装调查版，现有8可完成A/B；最短步骤及代码路径见docs/NECK_MOVEMENT_INVESTIGATION.md。
+
 - 项目：wch33e/HeadLink（私有）。
 - 本地代码：当前工程目录，project.yml 可重建。
-- 当前：1.1.1（6）；28项本地及云端测试通过，用户诊断证实真实姿态和四向小角度运动，保存个人局部范围；1∶1仍待校准后实测。
+- 当前稳定交付：1.2.0（8），固定机身1∶1已由用户真机确认。main与baseline-fixed-1.2.0-build-8保留该版本。1.2.1稳定性与挂脖调查在research/moving-body-observability独立分支；挂脖补偿尚未接通，不能标成已实现。下文早期构建信息为历史记录。
 - 2026-10-16：工作流和完整工程已提交。构建源commit：c47dc56b46e8e3016cb124618514d697b79b19e7。
 - 构建命令：GitHub 手动 iPhone unsigned build；Xcode 26.1.1 / macos-15；内部 bash scripts/build-unsigned.sh。
 - 权限：Contents/Workflows 写入已实际证实，Actions 已启用；CLI 不需新增 workflow scope。
@@ -91,3 +98,12 @@
 - [产物](https://github.com/wch33e/HeadLink/actions/runs/39009820676/artifacts/12092815403)已下载独立核验：版本1.2.0（8）、org.headlink.personal、最低iOS17.0、iphoneos26.1 SDK/arm64、未签名、无provisioning profile；archive CRC及原已测配置资源逐字相同检查通过。
 - SHA256 ef39939b6e0e7b31f48eede78cd39cd98018a628120a6b764e6dc5ff5002f9f5，与metadata和SHA256SUMS一致；inspection.json随IPA保存，hardwareValidated=false。后续文档提交不改已构建App源码。
 - 沿用原Sideloadly账户/身份覆盖更新。无额外付费服务或计费设置变更。实际30°/复合运动/连续5分钟结果待用户提供，移动补偿仍未验证。
+
+## 2026-10-17 移动机身数据核实（隔离研究分支）
+
+- 用户确认固定版1.2.0（8）正常；保存baseline-fixed-1.2.0-build-8及原IPA，不修改既有App/Sources/Tests或连接/录像/视频实现。
+- 补查到同包@24…@39镜头四元数，纠正“只有关节角”的不完整描述；尚无已核实完整机身姿态或完整独立关节旋转，也没有相机测量时间/时钟映射。详见docs/MOVING_BODY_FEASIBILITY.md，不冒称软件补偿已接通。
+- 后续用户已明确Pocket挂脖随胸口运动、iPhone分离。安装条件已确定，不再询问。旧诊断不含原始相机四元数，不能以重复校准解除完整机身姿态/关节定义的阻塞。
+- 已完成隔离research/moving-body-prototype，15项数学/同步/不可观测性/限位恢复测试通过；固定版55项回归通过；姿态采集解析器12项通过；本机tcpdump合成包离线过滤通过。各组不合并声称为已集成移动功能。
+- 准备70秒USB被动姿态采集，可继续使用现有App，不安装调查版。只保存有效姿态，不发角度命令、不保存视频/设备编号/密码；当前USB无iPhone，真实采集未运行。
+- 本轮不发布新IPA，不花云端额度重复构建未接通移动功能的App。后续需先确认机身数据/安装外参及控制参考，再接入完整链路、云端构建并交付一次完整更新。

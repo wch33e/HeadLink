@@ -1,0 +1,139 @@
+warning: <user>/Library/org.swift.swiftpm/configuration is not accessible or not writable, disabling user-level cache features.
+warning: <user>/Library/org.swift.swiftpm/security is not accessible or not writable, disabling user-level cache features.
+warning: <user>/Library/Caches/org.swift.swiftpm is not accessible or not writable, disabling user-level cache features.
+warning: 'headlink': failed storing manifest for 'headlink' in cache: attempt to write a readonly database
+warning: 'opencine': failed storing manifest for 'opencine' in cache: attempt to write a readonly database
+[0/1] Planning build
+Building for debugging...
+[0/2] Write swift-version--1AB21518FC5DEDBE.txt
+Build complete! (0.92s)
+◇ Test run started.
+↳ Testing Library Version: 1084
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite CalibrationLifecycleTests started.
+◇ Suite CommissioningTests started.
+◇ Suite TrackingTests started.
+◇ Suite FormalFollowTests started.
+◇ Suite ProtocolTests started.
+◇ Suite RecordedProfileTests started.
+◇ Suite ControlLoopTests started.
+◇ Suite VideoRecoveryTests started.
+◇ Test actualSessionReplacementInvalidatesWithReasonAndID() started.
+◇ Test candidateRangeDoesNotBecomeVerifiedRange() started.
+◇ Test explicitInvalidationRecordsSpecificReasonAndTime() started.
+◇ Test wrongAxisDirectionAndNoMotionFail() started.
+◇ Test observerWorksBeforeCameraCalibrationAndRejectsReferenceJump() started.
+◇ Test preparingAndConnectionNeverCommandMotion() started.
+◇ Test testExplicitStartPauseAndReconnect() started.
+◇ Test unknownIdentityAndStalePoseCannotArm() started.
+◇ Test stopMustBeObservedAndCannotBeConfirmedEarly() started.
+◇ Test testSignScaleBoundaryAndVertical() started.
+◇ Test temporaryPausePreservesCalibrationButRealStaleInputDoesNot() started.
+◇ Test UIAdmissionAndStartUseTheSameRejection() started.
+◇ Test oneCalibrationSurvivesNormalUpdatesAndStartsWithoutReinitialization() started.
+◇ Test returnRefusesUncommandedRepositioning() started.
+◇ Test resumeTransitionIsBoundedThenImmediateGainRemainsOne() started.
+◇ Test allAxesNeedExplicitPhysicalAndReturnConfirmation() started.
+◇ Test testRawTargetLimitAndSmoothConvergence() started.
+◇ Test testCompoundRotationAndNonIdentityCalibration() started.
+◇ Test testUnstableCalibrationDoesNotFinish() started.
+◇ Test testUnverifiedLimitsCannotMove() started.
+◇ Test testPausedYawRemainsContinuousAndMotionLossRequiresCalibration() started.
+◇ Test lossAndPauseCannotEmitHistoricalTargets() started.
+◇ Test outsideReachIsClampedWithoutGainCompressionOrOriginChange() started.
+◇ Test missingGravityAndVerticalCalibrationAreRejected() started.
+◇ Test testNativeAngleEncodingAndStop() started.
+◇ Test testIdentityAndSingleAxisGain() started.
+◇ Test movingTargetOrStaleFeedbackCannotClaimVerifiedSettledResponse() started.
+◇ Test testStaleCameraStopsEvenWithFreshHead() started.
+◇ Test officialRouteCalibratesWithoutExperimentThenTracksHoldReturnAndNativePitch() started.
+◇ Test commissionedRangeFeedsOneToOneTrackingWithoutAutomaticStart() started.
+◇ Test testNativeLatestWinsAndPauseFence() started.
+◇ Test testStaleAndTimestampResetInvalidateCalibration() started.
+◇ Test levelReferenceIsIndependentOfMotionReferenceFrameAndWrapsContinuously() started.
+◇ Test declaredReachReplacesFiveDegreeEnvelopeAndMatchesPinnedWire() started.
+◇ Test settledFeedbackDetectsWrongAxisUnitsAndNativeReference() started.
+◇ Test levelReferencePreservesCompoundThirtyDegreesFromTiltedRolledCalibration() started.
+◇ Test smallHoldJitterCannotHideAnUnresponsiveCamera() started.
+◇ Test packagedEnvelopeUsesOnlyObservedLocalEndpoints() started.
+◇ Test recordedOriginRequiresCalibrationThenPreservesGainAndNativeWrap() started.
+◇ Test exactConfirmedIdentityRequiredForReuse() started.
+◇ Test buttonActionsUseFreshSnapshotRatherThanCachedLoopClock() started.
+◇ Test arrivalBetweenClockAndReadPreviouslyInvalidatedCalibration() started.
+◇ Test repeatedConcurrentArrivalsKeepFollowingAcrossManyTicks() started.
+◇ Test captureDoesNotWeakenStaleOrFutureTimestampGuards() started.
+◇ Test stableButtonsDoNotRepublishAtMotorCadence() started.
+◇ Test aDisconnectedSessionAndBusyRecoveryDoNotOverlapRepairs() started.
+◇ Test telemetryIsNotDerivedFromCommandOrAck() started.
+◇ Test waitingForKeyframeRequestsDecoderRepairAndNewStream() started.
+◇ Test freshCompleteFramesNeverRebuildControlTransport() started.
+◇ Test splitNotificationsCorruptionAndUnknownOpcode() started.
+◇ Test freshDecoderOutputWithFrozenPresentationRepairsOnlyPresentationFirst() started.
+◇ Test assemblerBoundsAndTruncation() started.
+◇ Test healthyVideoDoesNotRepairForFiveMinutes() started.
+◇ Test staleVideoDoesNotMeanDisconnectedAndRepairIsBounded() started.
+◇ Test recoveryNeedsNewPicturesNotOldRetainedFrame() started.
+✔ Test observerWorksBeforeCameraCalibrationAndRejectsReferenceJump() passed after 0.002 seconds.
+✔ Test candidateRangeDoesNotBecomeVerifiedRange() passed after 0.003 seconds.
+✔ Test explicitInvalidationRecordsSpecificReasonAndTime() passed after 0.003 seconds.
+✔ Test testSignScaleBoundaryAndVertical() passed after 0.002 seconds.
+✔ Test preparingAndConnectionNeverCommandMotion() passed after 0.003 seconds.
+✔ Test unknownIdentityAndStalePoseCannotArm() passed after 0.003 seconds.
+✔ Test actualSessionReplacementInvalidatesWithReasonAndID() passed after 0.003 seconds.
+✔ Test testExplicitStartPauseAndReconnect() passed after 0.003 seconds.
+✔ Test UIAdmissionAndStartUseTheSameRejection() passed after 0.003 seconds.
+✔ Test temporaryPausePreservesCalibrationButRealStaleInputDoesNot() passed after 0.003 seconds.
+✔ Test testCompoundRotationAndNonIdentityCalibration() passed after 0.003 seconds.
+✔ Test stopMustBeObservedAndCannotBeConfirmedEarly() passed after 0.003 seconds.
+✔ Test wrongAxisDirectionAndNoMotionFail() passed after 0.004 seconds.
+✔ Test returnRefusesUncommandedRepositioning() passed after 0.004 seconds.
+✔ Test testUnstableCalibrationDoesNotFinish() passed after 0.004 seconds.
+✔ Test lossAndPauseCannotEmitHistoricalTargets() passed after 0.004 seconds.
+✔ Test resumeTransitionIsBoundedThenImmediateGainRemainsOne() passed after 0.004 seconds.
+✔ Test testUnverifiedLimitsCannotMove() passed after 0.004 seconds.
+✔ Test testIdentityAndSingleAxisGain() passed after 0.004 seconds.
+✔ Test testPausedYawRemainsContinuousAndMotionLossRequiresCalibration() passed after 0.004 seconds.
+✔ Test testStaleCameraStopsEvenWithFreshHead() passed after 0.005 seconds.
+✔ Test testNativeAngleEncodingAndStop() passed after 0.006 seconds.
+✔ Test missingGravityAndVerticalCalibrationAreRejected() passed after 0.006 seconds.
+✔ Test testNativeLatestWinsAndPauseFence() passed after 0.006 seconds.
+✔ Test testStaleAndTimestampResetInvalidateCalibration() passed after 0.006 seconds.
+✔ Test levelReferenceIsIndependentOfMotionReferenceFrameAndWrapsContinuously() passed after 0.006 seconds.
+✔ Test declaredReachReplacesFiveDegreeEnvelopeAndMatchesPinnedWire() passed after 0.006 seconds.
+✔ Test smallHoldJitterCannotHideAnUnresponsiveCamera() passed after 0.005 seconds.
+✔ Test levelReferencePreservesCompoundThirtyDegreesFromTiltedRolledCalibration() passed after 0.006 seconds.
+✔ Test settledFeedbackDetectsWrongAxisUnitsAndNativeReference() passed after 0.006 seconds.
+✔ Test outsideReachIsClampedWithoutGainCompressionOrOriginChange() passed after 0.006 seconds.
+✔ Test movingTargetOrStaleFeedbackCannotClaimVerifiedSettledResponse() passed after 0.006 seconds.
+✔ Test exactConfirmedIdentityRequiredForReuse() passed after 0.005 seconds.
+✔ Test buttonActionsUseFreshSnapshotRatherThanCachedLoopClock() passed after 0.005 seconds.
+✔ Test packagedEnvelopeUsesOnlyObservedLocalEndpoints() passed after 0.005 seconds.
+✔ Test arrivalBetweenClockAndReadPreviouslyInvalidatedCalibration() passed after 0.005 seconds.
+✔ Test captureDoesNotWeakenStaleOrFutureTimestampGuards() passed after 0.005 seconds.
+✔ Test stableButtonsDoNotRepublishAtMotorCadence() passed after 0.005 seconds.
+✔ Test aDisconnectedSessionAndBusyRecoveryDoNotOverlapRepairs() passed after 0.004 seconds.
+✔ Test officialRouteCalibratesWithoutExperimentThenTracksHoldReturnAndNativePitch() passed after 0.006 seconds.
+✔ Test waitingForKeyframeRequestsDecoderRepairAndNewStream() passed after 0.004 seconds.
+✔ Test telemetryIsNotDerivedFromCommandOrAck() passed after 0.004 seconds.
+✔ Test freshCompleteFramesNeverRebuildControlTransport() passed after 0.004 seconds.
+✔ Test freshDecoderOutputWithFrozenPresentationRepairsOnlyPresentationFirst() passed after 0.004 seconds.
+✔ Test assemblerBoundsAndTruncation() passed after 0.004 seconds.
+✔ Test testRawTargetLimitAndSmoothConvergence() passed after 0.006 seconds.
+✔ Test staleVideoDoesNotMeanDisconnectedAndRepairIsBounded() passed after 0.004 seconds.
+✔ Test recoveryNeedsNewPicturesNotOldRetainedFrame() passed after 0.004 seconds.
+✔ Test splitNotificationsCorruptionAndUnknownOpcode() passed after 0.004 seconds.
+✔ Suite ProtocolTests passed after 0.006 seconds.
+✔ Suite FormalFollowTests passed after 0.007 seconds.
+✔ Suite TrackingTests passed after 0.006 seconds.
+✔ Test allAxesNeedExplicitPhysicalAndReturnConfirmation() passed after 0.007 seconds.
+✔ Test recordedOriginRequiresCalibrationThenPreservesGainAndNativeWrap() passed after 0.006 seconds.
+✔ Suite RecordedProfileTests passed after 0.007 seconds.
+✔ Test commissionedRangeFeedsOneToOneTrackingWithoutAutomaticStart() passed after 0.008 seconds.
+✔ Suite CommissioningTests passed after 0.008 seconds.
+✔ Test repeatedConcurrentArrivalsKeepFollowingAcrossManyTicks() passed after 0.007 seconds.
+✔ Suite ControlLoopTests passed after 0.009 seconds.
+✔ Test oneCalibrationSurvivesNormalUpdatesAndStartsWithoutReinitialization() passed after 0.011 seconds.
+✔ Suite CalibrationLifecycleTests passed after 0.012 seconds.
+✔ Test healthyVideoDoesNotRepairForFiveMinutes() passed after 0.019 seconds.
+✔ Suite VideoRecoveryTests passed after 0.022 seconds.
+✔ Test run with 55 tests in 8 suites passed after 0.022 seconds.
