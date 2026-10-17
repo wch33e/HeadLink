@@ -24,7 +24,7 @@ struct RootView:View {
         NavigationStack {
             ZStack {
                 // One stable video subtree, including while device details cover the monitor.
-                monitor.opacity(shooting ? 1 : 0).accessibilityHidden(!shooting).allowsHitTesting(shooting)
+                monitor.accessibilityHidden(!shooting).allowsHitTesting(shooting)
                 if !shooting { devices }
             }
             .background(HeadLinkUI.canvas)
