@@ -62,8 +62,14 @@ import XCTest
     }
     private func setSwitch(_ id:String,to value:String) {
         let item=app.switches[id]
-        if item.value as? String != value { item.tap() }
-        XCTAssertEqual(item.value as? String,value)
+        if item.value as? String != value {
+            // SwiftUI exposes the entire settings row as the switch's AX frame; tap its control end.
+            item.coordinate(withNormalizedOffset:CGVector(dx:0.9,dy:0.5)).tap()
+        }
+        let changed=XCTNSPredicateExpectation(predicate:NSPredicate(format:"value == %@",value),object:item)
+        let result=XCTWaiter.wait(for:[changed],timeout:5)
+        if result != .completed { capture("switch-value-failure-"+id); print(app.debugDescription) }
+        XCTAssertEqual(result,.completed)
     }
     func testRealUnconnectedLayoutAndAllSettingsPaths() throws {
         launch()

@@ -201,7 +201,7 @@ struct RootView:View {
                 .frame(maxWidth:.infinity,minHeight:44).padding(.vertical,4)
         }
         .buttonStyle(.borderedProminent).buttonBorderShape(.roundedRectangle(radius:18))
-        .tint(HeadLinkUI.accent).foregroundStyle(.black)
+        .tint(HeadLinkUI.accent).foregroundStyle(model.isFollowing || model.canStart ? Color.black : Color.primary)
         .disabled(!model.isFollowing && !model.canStart)
         .accessibilityLabel(model.isFollowing ? "暂停跟随" : "开始／恢复跟随")
         .accessibilityIdentifier(model.isFollowing ? "alwaysPause" : "followToggle")
@@ -210,7 +210,7 @@ struct RootView:View {
         Button { model.camera.toggleRecording() } label: {
             VStack(spacing:4) {
                 Image(systemName:model.camera.actualRecording == true ? "stop.circle" : "record.circle").font(.title3)
-                Text(model.camera.actualRecording == true ? "停止录像" : "录像").font(.caption)
+                Text(model.camera.actualRecording == true ? "停止录像" : "录像").font(.caption).foregroundStyle(.primary)
             }.frame(minWidth:52,minHeight:52).padding(.horizontal,4)
         }
         .buttonStyle(QuietButtonStyle()).foregroundStyle(.red)
