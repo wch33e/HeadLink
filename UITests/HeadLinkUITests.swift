@@ -14,7 +14,9 @@ import XCTest
         XCTAssertTrue(ready)
     }
     private func capture(_ name:String) {
-        let attachment=XCTAttachment(screenshot:app.screenshot())
+        // Application snapshots may keep portrait crop bounds after rotation on iOS 26.
+        // Capture the real display so evidence includes the complete landscape window.
+        let attachment=XCTAttachment(screenshot:XCUIScreen.main.screenshot())
         attachment.name=name; attachment.lifetime = .keepAlways; add(attachment)
     }
     private func enterMonitor() {
@@ -137,6 +139,10 @@ import XCTest
     func testLandscapeControlsRemainReachable() throws {
         launch(); enterMonitor()
         XCUIDevice.shared.orientation = .landscapeLeft
+        let landscape=XCTNSPredicateExpectation(predicate:NSPredicate { _,_ in
+            self.app.frame.width > self.app.frame.height
+        },object:app)
+        XCTAssertEqual(XCTWaiter.wait(for:[landscape],timeout:5),.completed)
         XCTAssertTrue(app.buttons["openSettings"].waitForExistence(timeout:5))
         XCTAssertTrue(app.buttons["openSettings"].isHittable)
         assertPrimaryControlsVisible()
