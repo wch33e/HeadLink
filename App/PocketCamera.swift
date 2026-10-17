@@ -36,7 +36,6 @@ import HeadLinkCore
     @ObservationIgnored var connectionEpoch:UInt64=0
     @ObservationIgnored var connectedAt:Double?
     @ObservationIgnored var lastControlFrameAt:Double?
-    @ObservationIgnored var unhealthySince:Double?
     @ObservationIgnored var sessionHealth=CameraSessionHealthPolicy()
     @ObservationIgnored let network=CameraNetworkObserver()
     @ObservationIgnored var attitudeObservation:CameraAttitudeObservation?
@@ -278,17 +277,18 @@ import HeadLinkCore
     func disconnect(reason:String = "user_request") {
         let wasConnected=connected
         if wasConnected { onSessionEvent?("session_will_close",reason) }
+        let beforeClose=healthEvidence(),networkBeforeClose=network.snapshot(at:now)
         captureVideoDiagnostic()
         videoRecoveryTask?.cancel(); videoRecoveryTask=nil; videoTimeoutTask?.cancel(); videoTimeoutTask=nil
         if wasConnected || lastDisconnect == nil { lastDisconnect = .init(uptime:now,reason:reason,wasConnected:connected,transportHealthy:transportHealthy,
             statusAge:statusAt.map{now-$0},poseAge:pose.map{now-$0.receivedAt},nativeWrites:nativeWrites,
-            socketErrorCode:link?.lastSendError?.code,network:network.snapshot(at:now),evidence:healthEvidence()) }
+            socketErrorCode:link?.lastSendError?.code,network:networkBeforeClose,evidence:beforeClose) }
         stopTargets(); scanTask?.cancel(); scanTask=nil; bluetooth.stopScan()
         connectRun?.retire(); connectRun=nil; heartbeat.stop(); exchange.stopBLEDrain(); exchange.retire(DjiAppleControlExchange.Error.disconnected)
         link?.close(); link=nil; bluetooth.disconnect(); decoder.close(); lastPresentedAt=nil
         lastAttitudeLength=nil; attitudeFrames=0; poseFrames=0; parameterAt=nil
         lastSubmittedAngles=nil; lastSubmittedNativePitch=nil; targetSubmissions=0; lastCommandIssue=nil; lastStopAttemptAt=nil
-        connected=false; connectedAt=nil; unhealthySince=nil; sessionHealth = .init(); lastControlFrameAt=nil; pose=nil; status = .init(); statusAt=nil; recordingAt=nil
+        connected=false; connectedAt=nil; sessionHealth = .init(); lastControlFrameAt=nil; pose=nil; status = .init(); statusAt=nil; recordingAt=nil
         recordPending=nil; recordDeadline=nil; wifiRequest=nil; message="未连接"
         if wasConnected { onDisconnected?() }
     }

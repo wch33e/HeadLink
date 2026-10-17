@@ -36,7 +36,7 @@ public struct CameraHealthEvidence:Codable,Sendable {
 }
 
 /// Preserve the existing 1 s local-flow failure threshold, but require independent lack of inbound
-/// control evidence. Motion, angle limits, video loss and calibration are deliberately not inputs.
+/// control/video receive evidence. Motion, angle limits and calibration are deliberately not inputs.
 public struct CameraSessionHealthPolicy:Sendable {
     public private(set) var unhealthySince:Double?
     public init() {}
