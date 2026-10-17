@@ -26,6 +26,12 @@ import HeadLinkCore
     @ObservationIgnored private var lastStepAt:Double?
     @ObservationIgnored private var loopGap=0.0
     @ObservationIgnored private var events:[ControlEvent]=[]
+    @ObservationIgnored var incidentHistory:[CameraIncidentSample]=[]
+    @ObservationIgnored private var incidentAt=0.0
+    @ObservationIgnored private var lastConnectedObservationAt:Double?
+    @ObservationIgnored private var sceneObservation="not_observed"
+    @ObservationIgnored private var scenario="unmarked"
+    @ObservationIgnored private var wasRangeLimited=false
     var axes:ControlAxes = .both { didSet { pause(); controller.axes=axes; UserDefaults.standard.set(axes.rawValue,forKey:"axes") } }
     var mountMode:MountMode = .fixed { didSet {
         if oldValue != mountMode { revokeExperiment(); UserDefaults.standard.set(mountMode.rawValue,forKey:"mountMode") }
@@ -80,6 +86,7 @@ import HeadLinkCore
         response=ResponseMode(rawValue:UserDefaults.standard.string(forKey:"response") ?? "") ?? .immediate
         controller.axes=axes; controller.response=response; controller.requiresGravityReference=true
         mountMode=MountMode(rawValue:UserDefaults.standard.string(forKey:"mountMode") ?? "fixed") ?? .fixed
+        camera.onSessionEvent={ [weak self] kind,detail in self?.recordEvent(kind,detail:detail) }
         camera.onVideoEvent={ [weak self] kind,detail in
             guard let self else { return }
             recordEvent(kind,detail:detail)
@@ -104,6 +111,9 @@ import HeadLinkCore
         }
     }
     func activate() {
+        let changed=sceneObservation != "active"
+        sceneObservation="active"; camera.network.start()
+        if changed { recordEvent("scene_active",detail:"foreground; motion_never_auto_starts") }
         guard loop == nil else { return }
         motion.start()
         loop=Task { [weak self] in
@@ -114,6 +124,7 @@ import HeadLinkCore
         }
     }
     func pauseForInactiveScene() {
+        sceneObservation="inactive"
         recordEvent("scene_inactive",detail:"停止运动但不重建会话；有效校准保留，绝不自动恢复")
         let wasFollowing=isFollowing
         camera.stopTargets()
@@ -123,6 +134,7 @@ import HeadLinkCore
         publishPresentation()
     }
     func suspendControl() {
+        sceneObservation="background"
         recordEvent("scene_background",detail:"应用进入后台，停止控制并清除本次校准")
         camera.stopTargets(); controller.pause(invalidateCalibration:true,reason:.sceneBackground); motion.stop(); lastSensor=nil; probe.reset()
         revokeExperiment(reason:.sceneBackground); loop?.cancel(); loop=nil; UIApplication.shared.isIdleTimerDisabled=false
@@ -170,18 +182,21 @@ import HeadLinkCore
         defer { publishPresentation() }
         synchronizeLimits()
         if let reason=camera.followModeBlock,(commissioning.state != .inactive || isFollowing || controller.hasCalibration) {
+            recordEvent("camera_mode_incompatible",detail:reason)
             revokeExperiment(reason:.modeChanged); notice=reason
         }
         if camera.connected,now-controlInfoAt >= 2 {
             camera.refreshControlInfo(); controlInfoAt=now
         }
         if isFollowing,let reason=camera.controlModeReadiness {
-            pause(); notice="跟随已暂停："+reason+"；恢复模式回报后可明确继续"
+            camera.stopTargets(); controller.pause()
+            recordEvent("mode_readiness_paused",detail:reason)
+            notice="跟随已暂停："+reason+"；恢复模式回报后可明确继续"
         }
         if controller.state == .calibrating {
             if let started=calibrationStarted,now-started > 12 { controller.pause(invalidateCalibration:true,reason:.calibrationTimeout); notice="校准未完成，请保持头部和机身静止后重试" }
             else {
-                do { if try controller.collectCalibration(at:now) { showingCalibration=false; notice="已校准，请明确点击开始跟随"; haptic() } }
+                do { if try controller.collectCalibration(at:now) { showingCalibration=false; notice="已校准，请明确点击开始跟随"; recordEvent("calibration_completed",detail:"stable_head_and_camera; awaiting_explicit_start"); haptic() } }
                 catch { recordEvent("calibration_interrupted",detail:inputFailureDescription()); notice="校准暂停："+inputFailureDescription() }
             }
         }
@@ -194,6 +209,10 @@ import HeadLinkCore
             if commissioning.state == .failed { notice=commissioningFailure(commissioning.failure) }
         } else if isFollowing {
             if let output=controller.tick(at:now) {
+                if output.limitedByRange != wasRangeLimited {
+                    wasRangeLimited=output.limitedByRange
+                    recordEvent(wasRangeLimited ? "target_limit_reached" : "target_reachable_again",detail:"gain_1.00; calibration_preserved; session_preserved")
+                }
                 if !camera.submit(output) {
                     // A command rejection stops motion, but is not proof that the head reference changed.
                     // Genuine stale/jumped input independently invalidates calibration in the controller.
@@ -220,6 +239,7 @@ import HeadLinkCore
             sendHz=rateAt > 0 && count >= writesBefore ? Double(count-writesBefore)/(now-rateAt) : 0
             writesBefore=count; rateAt=now
         }
+        captureIncident()
         if (UserDefaults.standard.bool(forKey:"recordDiagnostics") || commissioning.state != .inactive || profileReady),now-diagnosticAt >= 0.1 {
             diagnosticAt=now
             diagnostics.append(.init(uptime:now,state:controller.state.rawValue,headAge:headAge,
@@ -252,7 +272,40 @@ import HeadLinkCore
             transportHealthy:camera.transportHealthy,headAge:controller.sample.map{time-$0.receivedAt},
             cameraAge:camera.pose.map{time-$0.receivedAt},loopGap:loopGap,nativeWrites:camera.nativeWrites,connectionEpoch:camera.connectionEpoch,calibrationID:controller.calibrationID,
             mode:camera.modeSummary,firmware:currentIdentity.firmware,cameraAngles:camera.pose?.angles))
-        if events.count > 100 { events.removeFirst(events.count-100) }
+        if events.count > 300 { events.removeFirst(events.count-300) }
+        captureIncident(event:kind+":"+detail)
+    }
+    func markComparison(_ group:String) {
+        guard group == "A" || group == "B" else { return }
+        if group == "A" { pause() }
+        scenario=group == "A" ? "A_preview_follow_off" : "B_fixed_follow_body_movement_reproduction"
+        recordEvent("comparison_marked",detail:scenario+"; B_requires_explicit_start; not_compensated_neck_mode")
+        notice=group == "A" ? "A组已标记，跟随已暂停；仅预览，移动机身并核对录像是否响应。" : "B组已标记；这是旧固定模式的故障对照，尚无机身补偿。需你明确校准／开始，再重复A组动作。"
+        publishPresentation()
+    }
+    private func captureIncident(event:String? = nil) {
+        let t=ProcessInfo.processInfo.systemUptime
+        if camera.connected { lastConnectedObservationAt=t }
+        guard event != nil || camera.connected || (lastConnectedObservationAt.map{t-$0 < 30} ?? false) else { return }
+        guard event != nil || t-incidentAt >= 0.2 else { return }
+        incidentAt=t
+        let e=camera.healthEvidence()
+        incidentHistory.append(.init(uptime:t,scenario:scenario,scene:sceneObservation,
+            network:camera.network.snapshot(at:t),session:e,classification:e.classification,
+            connectionEpoch:camera.connectionEpoch,followingState:controller.state.rawValue,calibrationID:controller.calibrationID,
+            hasCalibration:controller.hasCalibration,calibrationInvalidation:controller.invalidation,startRejection:controller.lastStartRejection,
+            headAt:controller.sample?.receivedAt,headSensorTime:controller.sample?.sensorTime,headQuaternion:controller.sample?.attitude,headTarget:controller.head,
+            rawTarget:controller.rawTarget,sentTarget:camera.lastSubmittedAngles,sentNativePitch:camera.lastSubmittedNativePitch,
+            actualAngles:camera.pose?.angles,actualNativePitch:camera.pose?.nativePitch,poseAt:camera.pose?.receivedAt,cameraAttitude:camera.attitudeObservation,
+            mode:camera.modeSummary,statusAt:camera.statusAt,parameterAt:camera.parameterAt,
+            nativeWrites:camera.nativeWrites,targetSubmissions:camera.targetSubmissions,commandIssue:camera.lastCommandIssue,
+            lastTrackedCommandWriteLanded:camera.link?.lastWriteLanded,lastSocketErrorCode:camera.link?.lastSendError?.code,
+            stopAttemptAt:camera.lastStopAttemptAt,actualRecording:camera.actualRecording,recordingAt:camera.recordingAt,
+            recordPending:camera.recordPending,recordError:camera.recordError,video:camera.videoSample(),
+            videoRecoveryState:camera.videoPolicy.state.rawValue,videoRecoveryReason:camera.videoPolicy.reason,
+            lastAcceptedSampleAt:camera.lastAcceptedSampleAt,sceneOrSessionEvent:event,
+            bodyAttitudeObservation:"unavailable; iPhone_separate; lens_quaternion_not_body; full_joint_rotation_unqualified"))
+        if incidentHistory.count > 1500 { incidentHistory.removeFirst(incidentHistory.count-1500) }
     }
     private func inputFailureDescription() -> String {
         guard camera.connected else { return "相机已断连，请查看断连原因" }
@@ -359,8 +412,9 @@ import HeadLinkCore
                 video:camera.videoDiagnostic,videoHistory:camera.videoHistory,
                 mountMode:mountMode.rawValue,gravityReferenceRequired:controller.requiresGravityReference,feedback:feedback.reading,
                 calibrationCameraAngles:controller.calibrationCameraPose?.angles,calibrationNativePitch:controller.calibrationCameraPose?.nativePitch,
-                headQuaternion:controller.sample?.attitude,headGravity:controller.sample?.gravity,directionReference:controller.directionReference)
-            try encoder.encode(DiagnosticExport(schema:4,generatedAt:Date(),context:context,rows:diagnostics)).write(to:url,options:.atomic)
+                headQuaternion:controller.sample?.attitude,headGravity:controller.sample?.gravity,directionReference:controller.directionReference,
+                incidents:incidentHistory)
+            try encoder.encode(DiagnosticExport(schema:5,generatedAt:Date(),context:context,rows:diagnostics)).write(to:url,options:.atomic)
             exportURL=url
         } catch { notice="诊断导出失败，请重试" }
     }
@@ -385,6 +439,7 @@ struct DiagnosticContext:Codable {
     let mountMode:String; let gravityReferenceRequired:Bool; let feedback:FollowFeedbackReading?
     let calibrationCameraAngles:Angles?; let calibrationNativePitch:Double?
     let headQuaternion:Quaternion?; let headGravity:DirectionVector?; let directionReference:HeadDirectionReference?
+    let incidents:[CameraIncidentSample]
 }
 struct DiagnosticExport:Codable { let schema:Int; let generatedAt:Date; let context:DiagnosticContext; let rows:[DiagnosticRow] }
 func commissioningFailure(_ reason:CommissioningError?) -> String {
