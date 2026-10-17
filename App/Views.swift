@@ -13,6 +13,7 @@ struct RootView:View {
     @State private var settings=false
     @State private var resume=false
     @State private var deviceFocus:DeviceFocus = .camera
+    @Environment(\.dynamicTypeSize) private var dynamicType
     @AppStorage("onboarded") private var onboarded=false
     @AppStorage("crosshair") private var crosshair=true
     @AppStorage("leftHanded") private var leftHanded=false
@@ -49,40 +50,53 @@ struct RootView:View {
         GeometryReader { geometry in
             ZStack {
                 preview.frame(maxWidth:.infinity,maxHeight:.infinity)
-                VStack(spacing:12) {
-                    topBar
-                    HStack {
-                        Text(LocalizedStringKey(stateLabel(model.controller.state)))
-                            .font(.subheadline.weight(.medium))
-                            .padding(.horizontal,12).padding(.vertical,8)
-                            .background(.black.opacity(0.85),in:Capsule())
-                            .accessibilityIdentifier("trackingState")
-                        Spacer(minLength:0)
-                    }
-                    Spacer(minLength:0)
+                if dynamicType.isAccessibilitySize && geometry.size.width > geometry.size.height {
+                    HStack(spacing:16) {
+                        if leftHanded { accessibleControls.frame(width:min(280,geometry.size.width*0.4)) }
+                        ScrollView {
+                            VStack(spacing:12) { topBar; followState; messages(maxHeight:geometry.size.height) }
+                        }
+                        if !leftHanded { accessibleControls.frame(width:min(280,geometry.size.width*0.4)) }
+                    }.padding(16)
+                } else {
                     VStack(spacing:12) {
-                        messages(maxHeight:geometry.size.height > geometry.size.width ? 152 : 88)
-                        controls
-                    }
+                        topBar
+                        followState
+                        Spacer(minLength:0)
+                        VStack(spacing:12) {
+                            messages(maxHeight:geometry.size.height > geometry.size.width ? 152 : 88)
+                            controls
+                        }
+                    }.padding(.horizontal,HeadLinkUI.inset).padding(.vertical,8)
                 }
-                .padding(.horizontal,HeadLinkUI.inset).padding(.vertical,8)
-            }
+            }.frame(width:geometry.size.width,height:geometry.size.height)
         }
+    }
+    private var followState:some View {
+        HStack {
+            Text(LocalizedStringKey(stateLabel(model.controller.state)))
+                .font(.subheadline.weight(.medium)).padding(.horizontal,12).padding(.vertical,8)
+                .background(.black.opacity(0.85),in:Capsule()).accessibilityIdentifier("trackingState")
+            Spacer(minLength:0)
+        }
+    }
+    private var cameraSummary:String {
+        model.camera.connected ? (model.camera.controlReceiveFresh ? "相机控制有回报" : "相机会话在，控制回报过期") : "相机未连接"
     }
 
     private var topBar:some View {
         HStack(spacing:8) {
             Button { deviceFocus = .camera; shooting=false } label: {
                 Label {
-                    Text(model.camera.connected ? (model.camera.controlReceiveFresh ? "相机控制有回报" : "相机会话在，控制回报过期") : "相机未连接")
+                    Text(dynamicType.isAccessibilitySize ? (model.camera.connected ? "已连" : "未连") : cameraSummary)
                         .font(.caption).multilineTextAlignment(.leading)
                 } icon: { Image(systemName:"camera").font(.body) }
-            }.accessibilityIdentifier("cameraDetails")
+            }.accessibilityLabel(cameraSummary).accessibilityIdentifier("cameraDetails")
             Divider().frame(height:24).padding(.horizontal,4)
             Button { deviceFocus = .headphones; shooting=false } label: {
-                Label(LocalizedStringKey(model.motionLabel),systemImage:"airpodspro")
+                Label(LocalizedStringKey(dynamicType.isAccessibilitySize ? "耳机" : model.motionLabel),systemImage:"airpodspro")
                     .font(.caption).multilineTextAlignment(.leading)
-            }.accessibilityIdentifier("headphoneDetails")
+            }.accessibilityLabel(model.motionLabel).accessibilityIdentifier("headphoneDetails")
             Spacer(minLength:0)
             Button { settings=true } label: { Image(systemName:"ellipsis").font(.title3) }
                 .accessibilityLabel("更多与设置").accessibilityIdentifier("openSettings")
@@ -159,6 +173,15 @@ struct RootView:View {
             else { calibrateButton; followButton; recordButton }
         }
         .padding(8).floatingSurface()
+    }
+    private var accessibleControls:some View {
+        VStack(spacing:8) {
+            followButton
+            HStack(spacing:8) {
+                if leftHanded { recordButton; calibrateButton }
+                else { calibrateButton; recordButton }
+            }
+        }.padding(8).floatingSurface()
     }
     private var calibrateButton:some View {
         Button { model.pause(); model.showingCalibration=true } label: {
