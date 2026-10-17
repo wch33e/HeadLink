@@ -5,18 +5,33 @@ mkdir -p build/ui-review
 python3 scripts/check-ui-freeze.py
 xcrun simctl list devices available --json > build/ui-review/available-devices.json
 review_device=$(python3 - <<'PY'
-import json
+import json,subprocess
 d=json.load(open('build/ui-review/available-devices.json'))
 items=[(runtime,item) for runtime,values in d['devices'].items() if 'iOS-' in runtime for item in values if item.get('isAvailable') and 'iPhone' in item['name']]
 assert items, 'No available iPhone simulator runtime'
 items.sort(key=lambda x:('iOS-26' not in x[0], 'SE' not in x[1]['name'], 'Pro Max' in x[1]['name'], x[1]['name']))
 runtime,item=items[0]
-json.dump({'runtime':runtime,'device':item,'hardwareValidation':False},open('build/ui-review/simulator.json','w'),indent=2)
-print(item['udid'])
+# Hosted images can contain pre-created devices stuck waiting on BackBoard.
+# Use the real installed model/runtime with a fresh data directory for this job.
+review_name='HeadLink UI Review'
+review_id=subprocess.check_output(['xcrun','simctl','create',review_name,item['deviceTypeIdentifier'],runtime],text=True,timeout=60).strip()
+device={'name':review_name,'model':item['name'],'udid':review_id,'deviceTypeIdentifier':item['deviceTypeIdentifier']}
+json.dump({'runtime':runtime,'device':device,'hardwareValidation':False},open('build/ui-review/simulator.json','w'),indent=2)
+print(review_id)
 PY
 )
 test_destination="platform=iOS Simulator,id=$review_device"
-xcrun simctl bootstatus "$review_device" -b
+boot_review_device() {
+  python3 - "$review_device" <<'PY'
+import subprocess,sys
+try:
+    subprocess.run(['xcrun','simctl','bootstatus',sys.argv[1],'-b'],check=True,timeout=180)
+except subprocess.TimeoutExpired:
+    print('Simulator boot exceeded 180 seconds; App tests did not pass by waiting.',flush=True)
+    raise SystemExit(124)
+PY
+}
+boot_review_device
 prune_recordings() {
   python3 - "$1" <<'PY'
 import pathlib,sys
@@ -35,7 +50,7 @@ if [ "$review_status" -ne 0 ]; then
   exit "$review_status"
 fi
 # Exercise the same real navigation at the system accessibility text size, without App launch hooks.
-xcrun simctl bootstatus "$review_device" -b
+boot_review_device
 xcrun simctl ui "$review_device" content_size accessibility-extra-extra-extra-large
 large_text_status=0
 xcodebuild -project HeadLink.xcodeproj -scheme HeadLinkUIReview -destination "$test_destination" \
