@@ -286,7 +286,7 @@ func stateLabel(_ state:TrackingState) -> String {
     case .calibrating:return "校准中"
     case .calibrated:return "已校准，等待开始"
     case .following:return "跟随中"
-    case .userPaused:return "用户暂停"
+    case .userPaused:return "跟随已暂停"
     case .stalePaused:return "数据失效，已暂停"
     case .deviceDisconnected:return "设备断连"
     case .fault:return "姿态异常，请重新校准"
