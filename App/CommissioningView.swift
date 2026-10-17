@@ -1,14 +1,23 @@
 import SwiftUI
 import HeadLinkCore
 
-/// Read-only readiness/feedback. The normal route never enables a per-session test envelope.
 struct CommissioningView:View {
     @Bindable var model:AppModel
     @Environment(\.dismiss) private var dismiss
     var body:some View {
+        NavigationStack {
+            ReadinessForm(model:model)
+                .toolbar { Button("完成") { dismiss() } }
+        }.presentationDragIndicator(.visible).presentationCornerRadius(HeadLinkUI.radius)
+    }
+}
+
+/// Same model and actions as the original sheet; also presented by the More navigation stack.
+struct ReadinessForm:View {
+    @Bindable var model:AppModel
+    var body:some View {
         let _=model.controlRevision
         let _=model.telemetryRevision
-        NavigationStack {
             Form {
                 Section("正式1∶1方向跟随") {
                     Text("连接 → 校准 → 开始。倍率始终1.00，头部保持姿势即保持目标；回到基准即回到对应方向。")
@@ -49,8 +58,8 @@ struct CommissioningView:View {
                     Button("生成脱敏诊断文件") { model.exportDiagnostics() }
                     if let url=model.exportURL { ShareLink("分享 JSON",item:url) }
                 }
-            }.navigationTitle("跟随状态与诊断").toolbar { Button("完成") { dismiss() } }
-        }
+            }
+        .headLinkList().navigationTitle("跟随状态与诊断").navigationBarTitleDisplayMode(.inline)
     }
     private func angles(_ a:Angles?) -> String { a.map{String(format:"%.1f° / %.1f°",$0.yaw,$0.pitch)} ?? "不可用" }
 }

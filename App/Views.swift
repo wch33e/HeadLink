@@ -5,72 +5,35 @@ import QuartzCore
 import HeadLinkCore
 import OpenCineApple
 
-private let accent=Color(red:0.388,green:0.851,blue:0.929)
-private let panel=Color(red:0.09,green:0.106,blue:0.129)
-private let backdrop=Color(red:0.043,green:0.051,blue:0.063)
+private enum DeviceFocus { case camera, headphones }
 
-struct RootView: View {
-    @Bindable var model: AppModel
+struct RootView:View {
+    @Bindable var model:AppModel
     @State private var shooting=false
     @State private var settings=false
     @State private var resume=false
+    @State private var deviceFocus:DeviceFocus = .camera
+    @Environment(\.dynamicTypeSize) private var dynamicType
     @AppStorage("onboarded") private var onboarded=false
     @AppStorage("crosshair") private var crosshair=true
     @AppStorage("leftHanded") private var leftHanded=false
     @AppStorage("keepAwake") private var keepAwake=false
-    @State private var diagnostics=false
-    var body: some View {
+
+    var body:some View {
         let _=model.controlRevision
         NavigationStack {
-            GeometryReader { geo in
-                ScrollView {
-                    VStack(spacing:18) {
-                        if !onboarded {
-                            VStack(alignment:.leading,spacing:12) {
-                                Text("让镜头跟随你的头部方向").font(.title2.bold())
-                                Text("① 连接耳机与相机\n② 看向正前方并校准\n③ 点击开始，随时暂停")
-                                Button("知道了") { onboarded=true }.buttonStyle(.bordered)
-                            }.frame(maxWidth:.infinity,alignment:.leading).padding().background(panel,in:RoundedRectangle(cornerRadius:16))
-                        }
-                        if shooting {
-                            statusBar
-                            if geo.size.width > geo.size.height {
-                                HStack(spacing:16) {
-                                    if leftHanded { controls.frame(width:200) }
-                                    preview.frame(minHeight:220)
-                                    if !leftHanded { controls.frame(width:200) }
-                                }
-                            } else { preview.frame(minHeight:250); controls }
-                            DisclosureGroup("精度与诊断",isExpanded:$diagnostics) { DiagnosticsPanel(model:model) }
-                        } else { connection }
-                        if let notice=model.notice { Label(LocalizedStringKey(notice),systemImage:"info.circle").font(.footnote).foregroundStyle(.secondary).frame(maxWidth:.infinity,alignment:.leading) }
-                        Text(model.mountMode == .fixed ? "机身竖直固定 · 重力水平参考 · 倍率1.00" : "移动机身补偿未验证，跟随不可启动").font(.caption).foregroundStyle(.secondary)
-                    }.padding(16)
-                }.background(backdrop)
+            ZStack {
+                // One stable video subtree, including while device details cover the monitor.
+                monitor.accessibilityHidden(!shooting).allowsHitTesting(shooting)
+                if !shooting { devices }
             }
-            .navigationTitle("HeadLink")
-            .toolbar {
-                ToolbarItem(placement:.topBarLeading) { if shooting { Button("设备") { shooting=false } } }
-                ToolbarItem(placement:.topBarTrailing) { Button("设置",systemImage:"gearshape") { settings=true } }
-                ToolbarItem(placement:.bottomBar) {
-                    if model.isFollowing { Button("暂停跟随",systemImage:"pause.fill") { model.pause() }.buttonStyle(.borderedProminent).tint(accent).accessibilityIdentifier("alwaysPause") }
-                }
-            }
+            .background(HeadLinkUI.canvas)
+            .toolbar(.hidden,for:.navigationBar)
             .sheet(isPresented:$settings) { SettingsView(model:model) }
             .sheet(isPresented:$model.showingCommissioning) { CommissioningView(model:model) }
             .sheet(isPresented:$model.showingCalibration,onDismiss:{
                 if model.controller.state == .calibrating { model.clearCalibration() }
-            }) {
-                VStack(spacing:24) {
-                    Image(systemName:"viewfinder").font(.system(size:56)).foregroundStyle(accent).accessibilityHidden(true)
-                    Text("看向你想设定的正前方，并让镜头对准同一方向。").font(.title2).multilineTextAlignment(.center)
-                    Text(model.controller.state == .calibrating ? "正在检查稳定性，请保持头部和机身静止" : "准备好后，建立新的方向对应关系")
-                    Text("此操作不会发送机械回中指令").font(.footnote).foregroundStyle(.secondary)
-                    if model.controller.state == .calibrating { ProgressView() }
-                    else { Button("开始校准") { model.calibrate() }.buttonStyle(.borderedProminent).disabled(!model.canCalibrate) }
-                    Button("取消") { model.clearCalibration(); model.showingCalibration=false }
-                }.padding(28).presentationDetents([.medium,.large])
-            }
+            }) { CalibrationSheet(model:model) }
             .confirmationDialog("恢复跟随",isPresented:$resume,titleVisibility:.visible) {
                 Button("继续原对应关系") { model.start() }
                 Button("以当前姿势重新对齐") { model.pause(); model.showingCalibration=true }
@@ -79,114 +42,278 @@ struct RootView: View {
             .onChange(of:shooting) { _,value in UIApplication.shared.isIdleTimerDisabled=value && keepAwake }
             .onChange(of:model.camera.connected) { _,value in if value { shooting=true } }
             .onChange(of:keepAwake) { _,value in UIApplication.shared.isIdleTimerDisabled=value && shooting }
-            .tint(accent)
+            .tint(HeadLinkUI.accent)
         }
     }
-    private var connection: some View {
-        VStack(spacing:18) {
-            Text("头部联动拍摄").font(.title3).foregroundStyle(.secondary)
-            card("耳机运动数据",icon:"airpodspro") {
-                Text(LocalizedStringKey(model.motionLabel))
-                HeadMotionReadout(model:model)
-                Button("跟随状态与诊断") { model.pause(); model.showingCommissioning=true }.buttonStyle(.bordered)
-                Text("先在 iPhone 系统中连接 AirPods。只有收到新鲜姿态，才表示运动数据可用。").font(.footnote).foregroundStyle(.secondary)
-                Button("检查运动数据") { model.retryMotion() }.buttonStyle(.bordered)
-                if model.motion.authorization == .denied { settingsLink }
-            }
-            card("Pocket 相机",icon:"camera") {
-                Text(LocalizedStringKey(model.camera.message))
-                if let camera=model.camera.selected { Text(camera.model.name).font(.headline) }
-                if let fw=model.camera.status.firmware { Text("固件：\(fw)").font(.caption) }
-                ForEach(model.camera.sightings) { sighting in
-                    Button(sighting.name) { model.controller.connecting(); model.camera.connect(sighting) }.buttonStyle(.bordered)
-                }
-                if let request=model.camera.wifiRequest {
-                    Text("打开系统“设置 → Wi-Fi”，加入下方网络，然后返回此处验证连接。").font(.footnote)
-                    Text(request.ssid).font(.body.monospaced()).privacySensitive()
-                    // Credentials enter the clipboard only after an explicit user copy action.
-                    SecureCredential(password:request.password)
-                    Button("已加入 Wi-Fi，验证连接") { model.camera.confirmWiFi() }.buttonStyle(.borderedProminent)
+
+    private var monitor:some View {
+        GeometryReader { geometry in
+            ZStack {
+                preview.frame(maxWidth:.infinity,maxHeight:.infinity)
+                if dynamicType.isAccessibilitySize && geometry.size.width > geometry.size.height {
+                    HStack(spacing:16) {
+                        if leftHanded { accessibleControls.frame(width:min(280,geometry.size.width*0.4)) }
+                        ScrollView {
+                            VStack(spacing:12) { topBar; followState; recordingIndicators; messages(maxHeight:geometry.size.height) }
+                        }
+                        .background(HeadLinkUI.canvas,in:RoundedRectangle(cornerRadius:24))
+                        if !leftHanded { accessibleControls.frame(width:min(280,geometry.size.width*0.4)) }
+                    }.padding(16)
                 } else {
-                    HStack {
-                        Button("搜索相机") { model.camera.scan() }.buttonStyle(.bordered)
-                        Button("断开") { model.camera.disconnect() }.buttonStyle(.bordered)
-                    }
+                    VStack(spacing:12) {
+                        topBar
+                        followState
+                        recordingIndicators
+                        Spacer(minLength:0)
+                        VStack(spacing:12) {
+                            messages(maxHeight:geometry.size.height > geometry.size.width ? 152 : 88)
+                            controls
+                        }
+                    }.padding(.horizontal,HeadLinkUI.inset).padding(.vertical,8)
                 }
-                Text("配对时请在相机屏幕确认。关闭 DJI Mimo，避免占用连接。").font(.footnote).foregroundStyle(.secondary)
-            }
-            Button("进入拍摄",systemImage:"viewfinder") { shooting=true }.frame(maxWidth:.infinity,minHeight:44).buttonStyle(.borderedProminent)
-            Text("连接后：看向正前方、让镜头对准目标方向 → 校准 → 开始。无需重复首次实验。").font(.footnote).foregroundStyle(.orange)
+            }.frame(width:geometry.size.width,height:geometry.size.height)
         }
     }
-    private var statusBar: some View {
-        VStack(alignment:.leading,spacing:6) {
-            HStack { Label(LocalizedStringKey(model.motionLabel),systemImage:"airpodspro"); Spacer(); Label(model.camera.connected ? (model.camera.controlReceiveFresh ? "相机控制有回报" : "相机会话在，控制回报过期") : "相机未连接",systemImage:"camera") }.font(.caption)
-            Text(LocalizedStringKey(stateLabel(model.controller.state))).font(.headline).foregroundStyle(model.isFollowing ? accent : .primary)
+    private var followState:some View {
+        HStack {
+            Text(LocalizedStringKey(stateLabel(model.controller.state)))
+                .font(.subheadline.weight(.medium)).padding(.horizontal,12).padding(.vertical,8)
+                .background(.black.opacity(0.85),in:Capsule()).accessibilityIdentifier("trackingState")
+            Spacer(minLength:0)
         }
     }
-    private var preview: some View {
+    private var cameraSummary:String {
+        model.camera.connected ? (model.camera.controlReceiveFresh ? "相机控制有回报" : "相机会话在，控制回报过期") : "相机未连接"
+    }
+
+    private var topBar:some View {
+        HStack(spacing:8) {
+            Button { deviceFocus = .camera; shooting=false } label: {
+                Label {
+                    Text(dynamicType.isAccessibilitySize ? (model.camera.connected ? "已连" : "未连") : cameraSummary)
+                        .font(.caption).multilineTextAlignment(.leading)
+                } icon: { Image(systemName:"camera").font(.body) }
+            }.accessibilityLabel(cameraSummary).accessibilityIdentifier("cameraDetails")
+            Divider().frame(height:24).padding(.horizontal,4)
+            Button { deviceFocus = .headphones; shooting=false } label: {
+                Label(LocalizedStringKey(dynamicType.isAccessibilitySize ? "耳机" : model.motionLabel),systemImage:"airpodspro")
+                    .font(.caption).multilineTextAlignment(.leading)
+            }.accessibilityLabel(model.motionLabel).accessibilityIdentifier("headphoneDetails")
+            Spacer(minLength:0)
+            Button { settings=true } label: { Image(systemName:"ellipsis").font(.title3) }
+                .accessibilityLabel("更多与设置").accessibilityIdentifier("openSettings")
+        }
+        .buttonStyle(QuietButtonStyle()).foregroundStyle(.primary)
+        .padding(.horizontal,12).padding(.vertical,4).floatingSurface()
+    }
+
+    private var preview:some View {
         ZStack {
             Color.black
-            if model.camera.connected { PreviewSurface(runtime:model.camera.decoder).aspectRatio(model.camera.decoder.pictureAspect,contentMode:.fit) }
+            if model.camera.connected {
+                PreviewSurface(runtime:model.camera.decoder).aspectRatio(model.camera.decoder.pictureAspect,contentMode:.fit)
+            }
             if !model.camera.previewLive {
                 VStack(spacing:12) {
-                    Image(systemName:"video.slash").font(.largeTitle)
-                    Text(model.camera.lastPresentedAt == nil ? "等待真实相机预览" : "画面已暂停 · 最后一帧")
-                    Text(LocalizedStringKey(model.camera.videoMessage)).font(.footnote)
-                }.padding().background(.black.opacity(0.75),in:RoundedRectangle(cornerRadius:12))
+                    Image(systemName:"video.slash").font(.title)
+                    Text(model.camera.lastPresentedAt == nil ? "等待真实相机预览" : "画面已暂停 · 最后一帧").font(.callout)
+                    Text(LocalizedStringKey(model.camera.videoMessage)).font(.footnote).foregroundStyle(.secondary)
+                }
+                .multilineTextAlignment(.center).padding(20)
+                .background(.black.opacity(0.85),in:RoundedRectangle(cornerRadius:20))
             }
-            if crosshair { Image(systemName:"plus").font(.body.weight(.ultraLight)).foregroundStyle(.white.opacity(0.6)).accessibilityHidden(true) }
-            VStack {
-                HStack {
-                    if model.camera.actualRecording == true { Label("REC \(model.camera.status.recordElapsedSec)s",systemImage:"record.circle.fill").foregroundStyle(.red).monospacedDigit() }
-                    else if model.camera.recordPending != nil { Text("等待录像确认…").foregroundStyle(.orange) }
-                    Spacer()
-                    LiveRangeIndicator(model:model)
-                }.font(.caption.bold()).padding(12).background(.black.opacity(0.5))
-                Spacer()
+            if crosshair {
+                Image(systemName:"plus").font(.body.weight(.ultraLight)).foregroundStyle(.white.opacity(0.6)).accessibilityHidden(true)
             }
-        }.clipShape(RoundedRectangle(cornerRadius:14))
-    }
-    private var controls: some View {
-        VStack(spacing:14) {
-            Text(model.axes == .both ? "左右＋上下 1∶1" : model.axes == .yaw ? "仅左右 1∶1" : "仅上下 1∶1").font(.headline)
-            Button("跟随状态与诊断",systemImage:"waveform.path") { model.pause(); model.showingCommissioning=true }.buttonStyle(.bordered)
-            if !model.profileReady { Text("等待匹配真实机型的正式协议配置").font(.footnote).foregroundStyle(.orange) }
-            if model.profileReady,let limits=model.controller.limits {
-                Text("正式方向跟随 · 协议可达范围").font(.caption)
-                Text(String(format:"机身坐标 yaw %.1f…%.1f° / pitch %.1f…%.1f°",limits.yawMin,limits.yawMax,limits.pitchMin,limits.pitchMax)).font(.caption).monospacedDigit()
-            }
-            if model.profileReady && !model.controller.hasCalibration {
-                Text("看向正前方，让镜头对准对应方向，点击校准后开始。").font(.footnote).foregroundStyle(.orange)
-            }
-            Text(model.isFollowing ? "目标随头部更新，保持姿势即保持目标" : "校准成功后请明确点击开始跟随").font(.caption).foregroundStyle(.secondary)
-            Button(model.isFollowing ? "暂停跟随" : "开始／恢复跟随",systemImage:model.isFollowing ? "pause.fill" : "play.fill") {
-                if model.isFollowing { model.pause() }
-                else if model.controller.state == .userPaused { resume=true }
-                else { model.start() }
-            }.buttonStyle(.borderedProminent).controlSize(.large).frame(maxWidth:.infinity,minHeight:52)
-                .disabled(!model.isFollowing && !model.canStart).accessibilityIdentifier("followToggle")
-            HStack {
-                Button("校准",systemImage:"scope") { model.pause(); model.showingCalibration=true }.disabled(!model.canCalibrate)
-                Spacer()
-                Button(model.camera.actualRecording == true ? "停止录像" : "录像",systemImage:"record.circle") { model.camera.toggleRecording() }
-                    .tint(.red).disabled(model.camera.actualRecording == nil || model.camera.recordPending != nil)
-            }.buttonStyle(.bordered).frame(minHeight:44)
-            if !model.isFollowing && !model.canStart {
-                ForEach(Array(model.blockers.prefix(3)),id:\.self) { Text(LocalizedStringKey($0)).font(.footnote).foregroundStyle(.orange) }
-            }
-            if let error=model.camera.recordError { Text(LocalizedStringKey(error)).font(.footnote).foregroundStyle(.orange) }
         }
     }
-    private func card<Content:View>(_ title:String,icon:String,@ViewBuilder content:()->Content) -> some View {
-        VStack(alignment:.leading,spacing:12) { Label(LocalizedStringKey(title),systemImage:icon).font(.headline); content() }
-            .frame(maxWidth:.infinity,alignment:.leading).padding(18).background(panel,in:RoundedRectangle(cornerRadius:16))
+    private var recordingIndicators:some View {
+        HStack(alignment:.top) {
+            VStack(alignment:.leading,spacing:8) {
+                if model.camera.actualRecording == true || model.camera.recordPending != nil {
+                    Group {
+                        if model.camera.actualRecording == true {
+                            Label("REC \(model.camera.status.recordElapsedSec)s",systemImage:"record.circle.fill")
+                                .foregroundStyle(.red).monospacedDigit()
+                        } else { Text("等待录像确认…").foregroundStyle(.orange) }
+                    }.padding(8).background(.black.opacity(0.75),in:RoundedRectangle(cornerRadius:12))
+                }
+                LiveRangeIndicator(model:model)
+            }.font(.caption.weight(.medium))
+            Spacer(minLength:0)
+        }.allowsHitTesting(false)
     }
-    private func format(_ a:Angles?) -> String { a.map{String(format:"%.1f° / %.1f°",$0.yaw,$0.pitch)} ?? "不可用" }
-    private var settingsLink: some View { Button("打开应用设置") { if let url=URL(string:UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } } }
+
+    @ViewBuilder private func messages(maxHeight:CGFloat) -> some View {
+        if model.notice != nil || model.camera.recordError != nil || (!model.isFollowing && !model.canStart) {
+            ScrollView {
+                VStack(alignment:.leading,spacing:8) {
+                    if let notice=model.notice {
+                        Label(LocalizedStringKey(notice),systemImage:"info.circle")
+                    }
+                    if !model.isFollowing && !model.canStart {
+                        ForEach(Array(model.blockers.prefix(3)),id:\.self) {
+                            Label(LocalizedStringKey($0),systemImage:"exclamationmark.circle").foregroundStyle(.orange)
+                        }
+                    }
+                    if let error=model.camera.recordError {
+                        Label(LocalizedStringKey(error),systemImage:"record.circle").foregroundStyle(.orange)
+                    }
+                }.font(.footnote).frame(maxWidth:.infinity,alignment:.leading).padding(12)
+            }
+            .frame(maxHeight:maxHeight)
+            .fixedSize(horizontal:false,vertical:true)
+            .background(.black.opacity(0.9),in:RoundedRectangle(cornerRadius:16))
+        }
+    }
+
+    private var controls:some View {
+        HStack(spacing:8) {
+            if leftHanded { recordButton; followButton; calibrateButton }
+            else { calibrateButton; followButton; recordButton }
+        }
+        .padding(8).floatingSurface()
+    }
+    private var accessibleControls:some View {
+        VStack(spacing:8) {
+            followButton
+            HStack(spacing:8) {
+                if leftHanded { recordButton; calibrateButton }
+                else { calibrateButton; recordButton }
+            }
+        }.padding(8).floatingSurface()
+    }
+    private var calibrateButton:some View {
+        Button { model.pause(); model.showingCalibration=true } label: {
+            VStack(spacing:4) { Image(systemName:"scope").font(.title3); Text("校准").font(.caption) }
+                .frame(minWidth:52,minHeight:52).padding(.horizontal,4)
+        }
+        .buttonStyle(QuietButtonStyle()).disabled(!model.canCalibrate).accessibilityIdentifier("calibrate")
+    }
+    private var followButton:some View {
+        Button {
+            if model.isFollowing { model.pause() }
+            else if model.controller.state == .userPaused { resume=true }
+            else { model.start() }
+        } label: {
+            Label(dynamicType.isAccessibilitySize ? (model.isFollowing ? "暂停" : (model.controller.state == .userPaused ? "恢复" : "开始")) : (model.isFollowing ? "暂停跟随" : "开始／恢复跟随"),systemImage:model.isFollowing ? "pause.fill" : "play.fill")
+                .font(.callout.weight(.semibold)).multilineTextAlignment(.center)
+                .frame(maxWidth:.infinity,minHeight:44).padding(.vertical,4)
+        }
+        .buttonStyle(.borderedProminent).buttonBorderShape(.roundedRectangle(radius:18))
+        .tint(HeadLinkUI.accent).foregroundStyle(model.isFollowing || model.canStart ? Color.black : Color.primary)
+        .disabled(!model.isFollowing && !model.canStart)
+        .accessibilityLabel(model.isFollowing ? "暂停跟随" : "开始／恢复跟随")
+        .accessibilityIdentifier(model.isFollowing ? "alwaysPause" : "followToggle")
+    }
+    private var recordButton:some View {
+        Button { model.camera.toggleRecording() } label: {
+            VStack(spacing:4) {
+                Image(systemName:model.camera.actualRecording == true ? "stop.circle" : "record.circle").font(.title3)
+                Text(model.camera.actualRecording == true ? "停止录像" : "录像").font(.caption).foregroundStyle(.primary)
+            }.frame(minWidth:52,minHeight:52).padding(.horizontal,4)
+        }
+        .buttonStyle(QuietButtonStyle()).foregroundStyle(.red)
+        .disabled(model.camera.actualRecording == nil || model.camera.recordPending != nil)
+        .accessibilityIdentifier("recordToggle")
+    }
+
+    private var devices:some View {
+        VStack(spacing:0) {
+            HStack {
+                Button { shooting=true } label: { Label("监看",systemImage:"chevron.left") }
+                    .accessibilityIdentifier("enterMonitor")
+                Spacer()
+                Text("设备").font(.headline)
+                Spacer()
+                Button { settings=true } label: { Image(systemName:"ellipsis") }
+                    .accessibilityLabel("更多与设置").accessibilityIdentifier("deviceSettings")
+            }.buttonStyle(QuietButtonStyle()).padding(.horizontal,16).padding(.vertical,4)
+            Form {
+                if !onboarded {
+                    Section {
+                        Text("① 连接耳机与相机\n② 看向正前方并校准\n③ 点击开始，随时暂停").font(.callout)
+                        Button("知道了") { onboarded=true }.accessibilityIdentifier("dismissOnboarding")
+                    }
+                }
+                if deviceFocus == .headphones { headphones; camera }
+                else { camera; headphones }
+                Section {
+                    Button("进入拍摄",systemImage:"viewfinder") { shooting=true }.frame(minHeight:44)
+                        .accessibilityIdentifier("enterShooting")
+                } footer: {
+                    Text("连接后：看向正前方、让镜头对准目标方向 → 校准 → 开始。无需重复首次实验。")
+                }
+                if let notice=model.notice { Section { Text(LocalizedStringKey(notice)).font(.footnote) } }
+                Section {
+                    Text(model.mountMode == .fixed ? "机身竖直固定 · 重力水平参考 · 倍率1.00" : "移动机身补偿未验证，跟随不可启动").font(.footnote).foregroundStyle(.secondary)
+                }
+            }.headLinkList()
+        }
+        .background(Color(uiColor:.systemGroupedBackground))
+    }
+    private var camera:some View {
+        Section {
+            LabeledContent("状态",value:model.camera.message)
+            if let camera=model.camera.selected { LabeledContent("型号",value:camera.model.name) }
+            if let firmware=model.camera.status.firmware { LabeledContent("固件",value:firmware) }
+            ForEach(model.camera.sightings) { sighting in
+                Button(sighting.name) { model.controller.connecting(); model.camera.connect(sighting) }.frame(minHeight:44)
+            }
+            if let request=model.camera.wifiRequest {
+                Text("打开系统“设置 → Wi-Fi”，加入下方网络，然后返回此处验证连接。").font(.footnote)
+                Text(request.ssid).font(.body.monospaced()).privacySensitive()
+                SecureCredential(password:request.password)
+                Button("已加入 Wi-Fi，验证连接") { model.camera.confirmWiFi() }.frame(minHeight:44)
+            } else {
+                Button("搜索相机",systemImage:"magnifyingglass") { model.camera.scan() }.frame(minHeight:44)
+                Button("断开",systemImage:"link") { model.camera.disconnect() }.frame(minHeight:44)
+            }
+        } header: { Label("Pocket 相机",systemImage:"camera") }
+        footer: { Text("配对时请在相机屏幕确认。关闭 DJI Mimo，避免占用连接。") }
+    }
+    private var headphones:some View {
+        Section {
+            LabeledContent("状态",value:model.motionLabel)
+            HeadMotionReadout(model:model)
+            Button("检查运动数据",systemImage:"waveform") { model.retryMotion() }.frame(minHeight:44)
+            Button("跟随状态与诊断",systemImage:"waveform.path") { model.pause(); model.showingCommissioning=true }.frame(minHeight:44)
+            if model.motion.authorization == .denied {
+                Button("打开应用设置") {
+                    if let url=URL(string:UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                }.frame(minHeight:44)
+            }
+        } header: { Label("耳机运动数据",systemImage:"airpodspro") }
+        footer: { Text("先在 iPhone 系统中连接 AirPods。只有收到新鲜姿态，才表示运动数据可用。") }
+    }
 }
 
-private struct DiagnosticsPanel:View {
+private struct CalibrationSheet:View {
+    @Bindable var model:AppModel
+    var body:some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment:.leading,spacing:24) {
+                    Image(systemName:"scope").font(.largeTitle).foregroundStyle(HeadLinkUI.accent).accessibilityHidden(true)
+                    Text("看向你想设定的正前方，并让镜头对准同一方向。").font(.title2.weight(.medium))
+                    Text(model.controller.state == .calibrating ? "正在检查稳定性，请保持头部和机身静止" : "准备好后，建立新的方向对应关系").font(.body)
+                    Text("此操作不会发送机械回中指令").font(.footnote).foregroundStyle(.secondary)
+                    if let notice=model.notice { Text(LocalizedStringKey(notice)).font(.footnote).foregroundStyle(.secondary) }
+                    if model.controller.state == .calibrating { ProgressView() }
+                    else {
+                        Button("开始校准") { model.calibrate() }.buttonStyle(.borderedProminent)
+                            .controlSize(.large).disabled(!model.canCalibrate)
+                    }
+                    Button("取消") { model.clearCalibration(); model.showingCalibration=false }.frame(minHeight:44)
+                }.frame(maxWidth:.infinity,alignment:.leading).padding(24)
+            }.navigationTitle("校准").navigationBarTitleDisplayMode(.inline)
+        }
+        .presentationDetents([.medium,.large]).presentationDragIndicator(.visible)
+        .presentationCornerRadius(HeadLinkUI.radius)
+    }
+}
+
+struct DiagnosticsPanel:View {
     @Bindable var model:AppModel
     var body:some View {
         let _=model.telemetryRevision
@@ -208,7 +335,7 @@ private struct DiagnosticsPanel:View {
             if !model.blockers.isEmpty { ForEach(model.blockers,id:\.self) { Text(LocalizedStringKey($0)).foregroundStyle(.orange) } }
             Text(LocalizedStringKey(model.camera.videoMessage))
             Button("重试图传恢复（不启动跟随）") { model.camera.retryVideoRecovery() }
-                .disabled(!model.camera.connected)
+                .disabled(!model.camera.connected).frame(minHeight:44)
             Text("命令提交或网络写入不等于镜头已到位。暂停命令尚无停止确认。").font(.caption).foregroundStyle(.secondary)
         }.padding(.top,12).font(.footnote).monospacedDigit()
     }
@@ -230,9 +357,10 @@ private struct LiveRangeIndicator:View {
     @Bindable var model:AppModel
     var body:some View {
         let _=model.telemetryRevision
-        Label("不可达：已限位，未缩放倍率",systemImage:"exclamationmark.triangle.fill")
-            .foregroundStyle(.orange).opacity(model.controller.output?.limitedByRange == true ? 1 : 0)
-            .accessibilityHidden(model.controller.output?.limitedByRange != true)
+        if model.controller.output?.limitedByRange == true {
+            Label("不可达：已限位，未缩放倍率",systemImage:"exclamationmark.triangle.fill")
+                .foregroundStyle(.orange).padding(8).background(.black.opacity(0.75),in:RoundedRectangle(cornerRadius:12))
+        }
     }
 }
 private struct SecureCredential: View {
@@ -241,14 +369,13 @@ private struct SecureCredential: View {
     @State private var copied=false
     var body:some View {
         VStack(alignment:.leading,spacing:10) {
-            HStack {
-                Button(reveal ? "隐藏 Wi-Fi 密码" : "显示 Wi-Fi 密码") { reveal.toggle() }
-                Spacer()
+            VStack(alignment:.leading,spacing:8) {
+                Button(reveal ? "隐藏 Wi-Fi 密码" : "显示 Wi-Fi 密码") { reveal.toggle() }.frame(minHeight:44)
                 Button {
                     UIPasteboard.general.setItems([["public.utf8-plain-text":password]],options:[.localOnly:true])
                     copied=true
                 } label: {
-                    Label(copied ? "密码已复制" : "复制密码",systemImage:copied ? "checkmark" : "doc.on.doc")
+                    Label(copied ? "密码已复制" : "复制密码",systemImage:copied ? "checkmark" : "doc.on.doc").frame(minHeight:44)
                 }.buttonStyle(.bordered).disabled(password.isEmpty)
             }
             if reveal { Text(password).font(.body.monospaced()).textSelection(.enabled).privacySensitive() }
