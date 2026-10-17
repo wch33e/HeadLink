@@ -92,6 +92,7 @@ private struct LocalDiagnosticsView:View {
 private struct LiveDiagnosticsView:View {
     @Bindable var model:AppModel
     var body:some View {
+        let _=model.controlRevision
         Form {
             Section {
                 Text(model.axes == .both ? "左右＋上下 1∶1" : model.axes == .yaw ? "仅左右 1∶1" : "仅上下 1∶1").font(.body.weight(.medium))

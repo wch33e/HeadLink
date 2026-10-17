@@ -12,7 +12,9 @@ import XCTest
                 "-crosshair","NO","-leftHanded","YES","-keepAwake","YES","-haptics","YES"]
         }
         app.launch()
-        XCTAssertTrue(app.buttons["enterMonitor"].waitForExistence(timeout:15))
+        let ready=app.buttons["enterMonitor"].waitForExistence(timeout:15)
+        if !ready { capture("00-launch-failure"); print(app.debugDescription) }
+        XCTAssertTrue(ready)
     }
     private func capture(_ name:String) {
         let attachment=XCTAttachment(screenshot:app.screenshot())
@@ -21,6 +23,19 @@ import XCTest
     private func enterMonitor() {
         app.buttons["enterMonitor"].tap()
         XCTAssertTrue(app.buttons["openSettings"].waitForExistence(timeout:5))
+        assertPrimaryControlsVisible()
+    }
+    private func assertPrimaryControlsVisible() {
+        for id in ["calibrate","followToggle","recordToggle"] {
+            let button=app.buttons[id]
+            XCTAssertTrue(button.exists,id)
+            XCTAssertGreaterThanOrEqual(button.frame.width,44,id)
+            XCTAssertGreaterThanOrEqual(button.frame.height,44,id)
+            XCTAssertGreaterThanOrEqual(button.frame.minX,app.frame.minX,id)
+            XCTAssertGreaterThanOrEqual(button.frame.minY,app.frame.minY,id)
+            XCTAssertLessThanOrEqual(button.frame.maxX,app.frame.maxX,id)
+            XCTAssertLessThanOrEqual(button.frame.maxY,app.frame.maxY,id)
+        }
     }
     private func openSettings() {
         app.buttons["openSettings"].tap()
@@ -82,6 +97,7 @@ import XCTest
         XCUIDevice.shared.orientation = .landscapeLeft
         XCTAssertTrue(app.buttons["openSettings"].waitForExistence(timeout:5))
         XCTAssertTrue(app.buttons["openSettings"].isHittable)
+        assertPrimaryControlsVisible()
         capture("08-monitor-landscape")
         openSettings(); capture("09-more-landscape")
         XCUIDevice.shared.orientation = .portrait

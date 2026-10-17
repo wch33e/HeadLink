@@ -33,11 +33,13 @@ extension View {
 }
 
 struct QuietButtonStyle:ButtonStyle {
+    @Environment(\.isEnabled) private var enabled
     func makeBody(configuration:Configuration) -> some View {
         configuration.label
             .frame(minWidth:44,minHeight:44)
             .contentShape(RoundedRectangle(cornerRadius:16))
             .background(configuration.isPressed ? Color.primary.opacity(0.1) : .clear,in:RoundedRectangle(cornerRadius:16))
+            .opacity(enabled ? 1 : 0.4)
     }
 }
 

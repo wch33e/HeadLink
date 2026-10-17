@@ -67,7 +67,7 @@ struct RootView:View {
                 }
                 .padding(.horizontal,HeadLinkUI.inset).padding(.vertical,8)
             }
-        }.accessibilityIdentifier("monitorWorkspace")
+        }
     }
 
     private var topBar:some View {
@@ -112,14 +112,17 @@ struct RootView:View {
             VStack {
                 HStack(alignment:.bottom) {
                     VStack(alignment:.leading,spacing:8) {
-                        if model.camera.actualRecording == true {
-                            Label("REC \(model.camera.status.recordElapsedSec)s",systemImage:"record.circle.fill")
-                                .foregroundStyle(.red).monospacedDigit()
-                        } else if model.camera.recordPending != nil { Text("等待录像确认…").foregroundStyle(.orange) }
+                        if model.camera.actualRecording == true || model.camera.recordPending != nil {
+                            Group {
+                                if model.camera.actualRecording == true {
+                                    Label("REC \(model.camera.status.recordElapsedSec)s",systemImage:"record.circle.fill")
+                                        .foregroundStyle(.red).monospacedDigit()
+                                } else { Text("等待录像确认…").foregroundStyle(.orange) }
+                            }.padding(8).background(.black.opacity(0.75),in:RoundedRectangle(cornerRadius:12))
+                        }
                         LiveRangeIndicator(model:model)
                     }
-                    .font(.caption.weight(.medium)).padding(8)
-                    .background(.black.opacity(0.75),in:RoundedRectangle(cornerRadius:12))
+                    .font(.caption.weight(.medium))
                     Spacer(minLength:0)
                 }.padding(.horizontal,20).padding(.top,120)
                 Spacer(minLength:0)
@@ -224,7 +227,6 @@ struct RootView:View {
             }.headLinkList()
         }
         .background(Color(uiColor:.systemGroupedBackground))
-        .accessibilityIdentifier("devicePage")
     }
     private var camera:some View {
         Section {
@@ -332,7 +334,8 @@ private struct LiveRangeIndicator:View {
     var body:some View {
         let _=model.telemetryRevision
         Label("不可达：已限位，未缩放倍率",systemImage:"exclamationmark.triangle.fill")
-            .foregroundStyle(.orange).opacity(model.controller.output?.limitedByRange == true ? 1 : 0)
+            .foregroundStyle(.orange).padding(8).background(.black.opacity(0.75),in:RoundedRectangle(cornerRadius:12))
+            .opacity(model.controller.output?.limitedByRange == true ? 1 : 0)
             .accessibilityHidden(model.controller.output?.limitedByRange != true)
     }
 }
