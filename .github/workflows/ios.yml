@@ -66,6 +66,10 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: HeadLink-UI-review-${{ github.run_number }}
-          path: build/ui-review
+          path: |
+            build/ui-review/*.json
+            build/ui-review/*.log
+            build/ui-review/screenshots
+            build/ui-review/large-text-screenshots
           retention-days: 3
           if-no-files-found: warn
