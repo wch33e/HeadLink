@@ -56,6 +56,7 @@ struct RootView:View {
                         ScrollView {
                             VStack(spacing:12) { topBar; followState; recordingIndicators; messages(maxHeight:geometry.size.height) }
                         }
+                        .background(HeadLinkUI.canvas,in:RoundedRectangle(cornerRadius:24))
                         if !leftHanded { accessibleControls.frame(width:min(280,geometry.size.width*0.4)) }
                     }.padding(16)
                 } else {
