@@ -53,10 +53,10 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - name: Verify frozen baseline
+      - name: Verify fixed-body recovery scope
         run: |
           python3 scripts/verify-vendor.py
-          python3 scripts/check-ui-freeze.py
+          python3 scripts/check-recovery-scope.py
       - name: Generate native projects
         run: bash scripts/install-xcodegen.sh
       - name: Run real unconnected UI navigation and capture simulator screenshots
