@@ -33,6 +33,10 @@ for binary in executables:
             relative=path[len('@rpath/'):]
             assert (app/'Frameworks'/relative).exists() or relative.startswith('libswift'), f'Missing embedded dependency {relative}'
 staging=out/'ipa-staging'
+if os.environ.get('GITHUB_SHA'):
+    provenance={'commit':os.environ['GITHUB_SHA'],'branch':os.environ.get('GITHUB_REF_NAME','unavailable'),
+                'run':os.environ['GITHUB_RUN_NUMBER']}
+    (app/'BuildProvenance.json').write_text(json.dumps(provenance,indent=2)+'\n')
 assert not staging.exists(), 'Staging already exists; use a clean build output'
 (staging/'Payload').mkdir(parents=True)
 shutil.copytree(app,staging/'Payload'/app.name)
@@ -41,6 +45,7 @@ subprocess.run(['ditto','-c','-k','--sequesterRsrc','--keepParent','Payload',str
 sha=hashlib.sha256(ipa.read_bytes()).hexdigest()
 (out/'SHA256SUMS').write_text(sha+'  '+ipa.name+'\n')
 metadata={'signature':'UNSIGNED; local signing required','commit':os.environ.get('GITHUB_SHA','local-uncommitted'),
+          'branch':os.environ.get('GITHUB_REF_NAME'),
           'run':os.environ.get('GITHUB_RUN_NUMBER'), 'createdUTC':datetime.datetime.now(datetime.timezone.utc).isoformat(),
           'sha256':sha,'bundleID':info['CFBundleIdentifier'],'version':info['CFBundleShortVersionString'],
           'buildVersion':info['CFBundleVersion'],'minimumOS':info['MinimumOSVersion'],

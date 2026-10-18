@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p build/ui-review
-python3 scripts/check-ui-freeze.py
+python3 scripts/check-recovery-scope.py
 xcrun simctl list devices available --json > build/ui-review/available-devices.json
 review_device=$(python3 - <<'PY'
 import json,subprocess

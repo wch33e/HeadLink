@@ -8,6 +8,15 @@ import HeadLinkCore
 
 /// Production adapter. Wire values and connection sequencing come only from pinned OpenCine.
 @MainActor @Observable final class PocketCamera {
+    @ObservationIgnored private let clock:()->Double
+    @ObservationIgnored private let suppliedControlEndpoint:(any CameraControlEndpoint)?
+    init(clock:@escaping ()->Double = { ProcessInfo.processInfo.systemUptime },controlEndpoint:(any CameraControlEndpoint)? = nil) {
+        self.clock=clock; suppliedControlEndpoint=controlEndpoint
+    }
+    private var controlEndpoint:(any CameraControlEndpoint)? {
+        if let suppliedControlEndpoint { return suppliedControlEndpoint }
+        return link
+    }
     var sightings: [DjiAppleSighting] = []
     var message = "未连接"
     var connected = false
@@ -16,6 +25,8 @@ import HeadLinkCore
     @ObservationIgnored var lastAttitudeLength:Int?
     @ObservationIgnored var attitudeFrames=0
     @ObservationIgnored var poseFrames=0
+    @ObservationIgnored var attitudeTrace:DjiAppleAttitudeTrace?
+    @ObservationIgnored private var lastStatusReceipt:[UInt16:Double]=[:]
     @ObservationIgnored var parameterAt:Double?
     @ObservationIgnored var lastSubmittedAngles:Angles?
     @ObservationIgnored var lastSubmittedNativePitch:Double?
@@ -70,14 +81,14 @@ import HeadLinkCore
             pathReady:DjiAppleWiFiJoiner.isCameraPathReady(),sceneActive:true,holdsMonitor:true) },event:{ [weak self] event in
             if event == .cameraPathLost { self?.disconnect(reason:"camera_path_lost") }
         })
-    var now: Double { ProcessInfo.processInfo.systemUptime }
+    var now: Double { clock() }
     var freshPose: CameraPose? { guard let pose,pose.fresh(at:now) else { return nil }; return pose }
     var actualRecording: Bool? {
         guard connected,status.recordingReported,let t=recordingAt,now-t <= 2 else { return nil }
         return status.isRecording
     }
     var previewLive: Bool { videoSample().live }
-    var transportHealthy: Bool { connected && link?.isFlowHealthy == true }
+    var transportHealthy: Bool { connected && controlEndpoint?.isFlowHealthy == true }
     // Counts actual UDP writes, not UI timer ticks or accepted mailbox submissions.
     var nativeWrites: Int { link?.headLinkNativeWriteCount ?? 0 }
 
@@ -145,7 +156,7 @@ import HeadLinkCore
     }
     private func bindLink() {
         guard let link else { return }
-        link.onStatusFrame={ [weak self] frame in self?.receive(frame) }
+        link.onTimedStatusFrame={ [weak self] frame,receivedAt in self?.receive(frame,receivedAt:receivedAt) }
         let source=decoder.sourceToken
         link.onAccessUnit={ [weak self] bytes in
             guard let self,self.connected else { return }
@@ -154,32 +165,46 @@ import HeadLinkCore
         }
         link.onVideoDiscontinuity={ [weak self] in self?.decoder.noteCompressedDiscontinuity() }
     }
-    private func receive(_ frame: Duml.Frame) {
-        lastControlFrameAt=now
+    func receive(_ frame: Duml.Frame,receivedAt:Double) {
+        guard receivedAt.isFinite else { return }
+        lastControlFrameAt=max(lastControlFrameAt ?? receivedAt,receivedAt)
         exchange.receive(frame)
-        if frame.cmdSet == 4,frame.cmdId == 5 { lastAttitudeLength=frame.payload.count; attitudeFrames += 1 }
+        if frame.cmdSet == 4,frame.cmdId == 5 { _=capturePose(); return }
+        let key=UInt16(frame.cmdSet)<<8 | UInt16(frame.cmdId)
+        guard receivedAt >= (lastStatusReceipt[key] ?? receivedAt) else { return }
         if CameraStatusDecoder.apply(frame,to:&status,model:selected?.model) {
-            statusAt=now
-            if frame.cmdSet == 4,frame.cmdId == 0x50 { parameterAt=now }
+            lastStatusReceipt[key]=receivedAt
+            statusAt=max(statusAt ?? receivedAt,receivedAt)
+            if frame.cmdSet == 4,frame.cmdId == 0x50 { parameterAt=receivedAt }
         }
         if frame.cmdSet == 2,frame.cmdId == 0x80,frame.payload.count >= 13 {
-            recordingAt=now
+            recordingAt=receivedAt
             if recordPending == status.isRecording { recordPending=nil; recordDeadline=nil }
         }
-        if frame.cmdSet == 4,frame.cmdId == 5,
-           let yaw=GimbalStick.yawTenthDeg(frame.payload),let pitch=GimbalStick.pitchTenthDeg(frame.payload),
-           let native=GimbalStick.nativePitchTenthDeg(frame.payload) {
-            poseFrames += 1
-            let unwrapped=GimbalWaypoint.unwrapYaw(Double(yaw)/10)
-            pose = .init(angles:.init(yaw:unwrapped,pitch:Double(pitch)/10),nativePitch:Double(native)/10,receivedAt:now)
+        _=capturePose()
+    }
+    /// Reads the already parsed newest pose on the UDP queue, not queued historical Main callbacks.
+    /// A delayed callback can never re-stamp or replace this slot with an older pose.
+    @discardableResult func capturePose() -> CameraPose? {
+        guard let link else { return pose }
+        let snapshot=link.headLinkAttitudeSnapshot
+        attitudeTrace=snapshot.trace; attitudeFrames=snapshot.trace.frames
+        poseFrames=snapshot.trace.validFrames; lastAttitudeLength=snapshot.trace.payloadLength
+        if let receivedAt=snapshot.trace.lastIngressAt {
+            lastControlFrameAt=max(lastControlFrameAt ?? receivedAt,receivedAt)
+            statusAt=max(statusAt ?? receivedAt,receivedAt)
         }
+        guard let value=snapshot.pose,let receivedAt=snapshot.receivedAt,let native=value.nativePitchDeg else { pose=nil; return nil }
+        status.gimbalModeFamily=snapshot.trace.modeFamilyRaw.flatMap(GimbalModeFamily.init(rawValue:))
+        pose = .init(angles:.init(yaw:value.yawDeg,pitch:value.pitchDeg),nativePitch:native,receivedAt:receivedAt)
+        return pose
     }
     func confirmWiFi() { wifiContinue=true }
     func startTargets() -> Bool {
         guard transportHealthy else { lastCommandIssue="控制传输未就绪，未建立目标队列"; return false }
         guard freshPose != nil else { lastCommandIssue="镜头姿态缺失或超过300ms，未建立目标队列"; return false }
         lastCommandIssue=nil
-        stopTargets(); tokenCounter &+= 1; targetToken=tokenCounter; link?.beginNativeTargets(token:tokenCounter); return true
+        stopTargets(); tokenCounter &+= 1; targetToken=tokenCounter; controlEndpoint?.beginNativeTargets(token:tokenCounter); return true
     }
     func submit(_ output: TrackingOutput) -> Bool {
         submit(angles:output.command,nativePitch:output.nativePitch)
@@ -194,7 +219,7 @@ import HeadLinkCore
         guard let frame=Commands.gimbalTimedTarget(yawDeg:angles.yaw,nativePitchDeg:nativePitch,duration:0.1) else {
             lastCommandIssue="角度被已核实命令编码器拒绝"; return false
         }
-        guard link?.noteNativeTarget(frame,token:token) == true else {
+        guard controlEndpoint?.noteNativeTarget(frame,token:token) == true else {
             lastCommandIssue="目标队列拒绝：可能被底层新鲜度或可达路径检查停止"; return false
         }
         lastSubmittedAngles=angles; lastSubmittedNativePitch=nativePitch; targetSubmissions += 1; lastCommandIssue=nil
@@ -205,16 +230,22 @@ import HeadLinkCore
         _=link?.sendUntracked(Commands.gimbalParamsGet())
     }
     var followModeBlock:String? {
+        followModeBlock(at:now)
+    }
+    func followModeBlock(at time:Double) -> String? {
         if let family=status.gimbalModeFamily, family != .follow { return "机身当前不是跟随模式，请在相机下拉菜单选择跟随" }
-        if let parameterAt,now-parameterAt < 3,status.gimbalParams?.tiltLock == .locked {
+        if let parameterAt,time >= parameterAt,time-parameterAt < 3,status.gimbalParams?.tiltLock == .locked {
             return "相机报告俯仰已锁定，请在机身改为跟随模式"
         }
         return nil
     }
     var controlModeReadiness:String? {
-        if let reason=followModeBlock { return reason }
-        guard status.gimbalModeFamily == .follow,let pose,pose.fresh(at:now) else { return "等待真实Follow模式与新鲜姿态回报" }
-        guard let parameterAt,now-parameterAt < 3,let params=status.gimbalParams else { return "等待新鲜云台参数回报（每2秒自动查询）" }
+        controlModeReadiness(at:now)
+    }
+    func controlModeReadiness(at time:Double) -> String? {
+        if let reason=followModeBlock(at:time) { return reason }
+        guard status.gimbalModeFamily == .follow,let pose,pose.fresh(at:time) else { return "等待真实Follow模式与新鲜姿态回报" }
+        guard let parameterAt,time >= parameterAt,time-parameterAt < 3,let params=status.gimbalParams else { return "等待新鲜云台参数回报（每2秒自动查询）" }
         guard params.tiltLock == .unlocked else { return "俯仰锁定，需在机身选择Follow模式" }
         return nil
     }
@@ -231,14 +262,14 @@ import HeadLinkCore
     func stopTargets() {
         guard let token=targetToken else { return }; targetToken=nil
         lastStopAttemptAt=now
-        link?.endNativeTargets(token:token)
+        controlEndpoint?.endNativeTargets(token:token)
         // This command is notify-only; no claim that a stopped pose was confirmed.
     }
     func toggleRecording() {
         guard connected,recordPending == nil,let current=actualRecording else { return }
         lastCameraSetAt=now
         recordError=nil; recordPending = !current; recordDeadline=now+4
-        _=link?.send(current ? Commands.recordStop() : Commands.recordStart())
+        _=controlEndpoint?.send(current ? Commands.recordStop() : Commands.recordStart())
     }
     func checkHealth() {
         if let deadline=recordDeadline,now >= deadline { recordPending=nil; recordDeadline=nil; recordError="录像请求未确认，请检查相机" }
@@ -260,7 +291,7 @@ import HeadLinkCore
         stopTargets(); scanTask?.cancel(); scanTask=nil; bluetooth.stopScan()
         connectRun?.retire(); connectRun=nil; heartbeat.stop(); exchange.stopBLEDrain(); exchange.retire(DjiAppleControlExchange.Error.disconnected)
         link?.close(); link=nil; bluetooth.disconnect(); decoder.close(); lastPresentedAt=nil
-        lastAttitudeLength=nil; attitudeFrames=0; poseFrames=0; parameterAt=nil
+        lastAttitudeLength=nil; attitudeFrames=0; poseFrames=0; parameterAt=nil; attitudeTrace=nil; lastStatusReceipt=[:]
         lastSubmittedAngles=nil; lastSubmittedNativePitch=nil; targetSubmissions=0; lastCommandIssue=nil; lastStopAttemptAt=nil
         connected=false; connectedAt=nil; unhealthySince=nil; lastControlFrameAt=nil; pose=nil; status = .init(); statusAt=nil; recordingAt=nil
         recordPending=nil; recordDeadline=nil; wifiRequest=nil; message="未连接"; onDisconnected?()

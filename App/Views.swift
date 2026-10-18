@@ -32,7 +32,7 @@ struct RootView:View {
             .sheet(isPresented:$settings) { SettingsView(model:model) }
             .sheet(isPresented:$model.showingCommissioning) { CommissioningView(model:model) }
             .sheet(isPresented:$model.showingCalibration,onDismiss:{
-                if model.controller.state == .calibrating { model.clearCalibration() }
+                if model.controller.state == .calibrating { model.clearCalibration(reason:"sheet_dismissed_while_calibrating") }
             }) { CalibrationSheet(model:model) }
             .confirmationDialog("恢复跟随",isPresented:$resume,titleVisibility:.visible) {
                 Button("继续原对应关系") { model.start() }
@@ -76,7 +76,7 @@ struct RootView:View {
     }
     private var followState:some View {
         HStack {
-            Text(LocalizedStringKey(stateLabel(model.controller.state)))
+            Text(LocalizedStringKey(model.trackingStatus))
                 .font(.subheadline.weight(.medium)).padding(.horizontal,12).padding(.vertical,8)
                 .background(.black.opacity(0.85),in:Capsule()).accessibilityIdentifier("trackingState")
             Spacer(minLength:0)
@@ -149,7 +149,7 @@ struct RootView:View {
             ScrollView {
                 VStack(alignment:.leading,spacing:8) {
                     if let notice=model.notice {
-                        Label(LocalizedStringKey(notice),systemImage:"info.circle")
+                        Label("最近操作：\(notice)",systemImage:"info.circle")
                     }
                     if !model.isFollowing && !model.canStart {
                         ForEach(Array(model.blockers.prefix(3)),id:\.self) {
@@ -288,9 +288,11 @@ struct RootView:View {
     }
 }
 
-private struct CalibrationSheet:View {
+struct CalibrationSheet:View {
     @Bindable var model:AppModel
     var body:some View {
+        let _=model.controlRevision
+        let _=model.telemetryRevision
         NavigationStack {
             ScrollView {
                 VStack(alignment:.leading,spacing:24) {
@@ -298,11 +300,16 @@ private struct CalibrationSheet:View {
                     Text("看向你想设定的正前方，并让镜头对准同一方向。").font(.title2.weight(.medium))
                     Text(model.controller.state == .calibrating ? "正在检查稳定性，请保持头部和机身静止" : "准备好后，建立新的方向对应关系").font(.body)
                     Text("此操作不会发送机械回中指令").font(.footnote).foregroundStyle(.secondary)
-                    if let notice=model.notice { Text(LocalizedStringKey(notice)).font(.footnote).foregroundStyle(.secondary) }
-                    if model.controller.state == .calibrating { ProgressView() }
+                    if model.canCalibrate {
+                        Text("当前输入有效").font(.footnote).accessibilityIdentifier("calibrationInputsReady")
+                    } else {
+                        ForEach(model.calibrationBlockers,id:\.self) { Text(LocalizedStringKey($0)).font(.footnote).foregroundStyle(.orange) }
+                    }
+                    if let notice=model.notice { Text("上次操作：\(notice)").font(.footnote).foregroundStyle(.secondary) }
+                    if model.controller.state == .calibrating { ProgressView().accessibilityIdentifier("calibrationProgress") }
                     else {
                         Button("开始校准") { model.calibrate() }.buttonStyle(.borderedProminent)
-                            .controlSize(.large).disabled(!model.canCalibrate)
+                            .controlSize(.large).disabled(!model.canCalibrate).accessibilityIdentifier("beginCalibration")
                     }
                     Button("取消") { model.clearCalibration(); model.showingCalibration=false }.frame(minHeight:44)
                 }.frame(maxWidth:.infinity,alignment:.leading).padding(24)

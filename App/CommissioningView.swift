@@ -55,6 +55,9 @@ struct ReadinessForm:View {
                     LabeledContent("网络写入数",value:"\(model.camera.nativeWrites)")
                     Text("核对值来自相机姿态反馈，2.5°只是异常暂停阈值，不是达到该物理精度的声明。外部量角精度、端到端延迟和漂移未测量。")
                     ForEach(model.blockers,id:\.self) { Text(LocalizedStringKey($0)).font(.footnote).foregroundStyle(.orange) }
+                    if let invalidation=model.controller.invalidation {
+                        Text("历史校准失效：\(invalidation.reason.message)").font(.footnote).foregroundStyle(.secondary)
+                    }
                     Button("生成脱敏诊断文件") { model.exportDiagnostics() }
                     if let url=model.exportURL { ShareLink("分享 JSON",item:url) }
                 }
