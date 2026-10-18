@@ -11,6 +11,7 @@ struct MotionDeliveryTests {
         #expect(source.reading(at:1.025).sample == nil)
         source.accept(sample(1.05),at:1.05)
         #expect(!source.reading(at:1.05).failed)
+        #expect(source.reading(at:1.05).sourceErrorCount == 1)
         #expect(source.reading(at:1.05).sample?.receivedAt == 1.05)
         #expect(source.diagnostic.errors == 1)
         #expect(source.diagnostic.lastErrorAt == 1.025 && source.diagnostic.lastRecoveryAt == 1.05)

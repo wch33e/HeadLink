@@ -1,6 +1,7 @@
 import Foundation
 
 public struct MotionDeliveryDiagnostic:Codable,Sendable {
+    public var generation:UInt64=0
     public var callbacks=0
     public var errors=0
     public var lastCallbackAt:Double?
@@ -42,6 +43,6 @@ public struct MotionDelivery:Sendable {
     public func reading(at time:Double) -> MotionReading {
         let span=(callbackTimes.last ?? 0)-(callbackTimes.first ?? 0)
         let fresh=sample.map{time >= $0.receivedAt && time-$0.receivedAt < 0.2} ?? false
-        return .init(sample:sample,callbackHz:fresh && span > 0 ? Double(callbackTimes.count-1)/span : 0,failed:failed)
+        return .init(sample:sample,callbackHz:fresh && span > 0 ? Double(callbackTimes.count-1)/span : 0,failed:failed,sourceErrorCount:diagnostic.errors)
     }
 }

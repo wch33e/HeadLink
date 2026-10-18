@@ -32,8 +32,10 @@ private final class ObservationChanges:@unchecked Sendable {
     @MainActor final class Clock {
         var time=100.0
         var attitude=Quaternion.identity
-        var failed=false
-        var reading:MotionReading { .init(sample:failed ? nil : .init(attitude:attitude,receivedAt:time,sensorTime:time,rotationRate:0,gravity:.init(x:0,y:0,z:-1)),callbackHz:failed ? 0 : 50,failed:failed) }
+        var sourceErrors=0
+        var generation:UInt64=1
+        var failed=false { didSet { if failed && !oldValue { sourceErrors += 1 } } }
+        var reading:MotionReading { .init(sample:failed ? nil : .init(attitude:attitude,receivedAt:time,sensorTime:time,rotationRate:0,gravity:.init(x:0,y:0,z:-1)),callbackHz:failed ? 0 : 50,failed:failed,sourceErrorCount:sourceErrors,sourceGeneration:generation) }
     }
     @MainActor final class Endpoint:CameraControlEndpoint {
         var isFlowHealthy=true
@@ -235,5 +237,24 @@ private final class ObservationChanges:@unchecked Sendable {
         XCTAssertNotEqual(f.model.controller.state,.calibrating)
         XCTAssertFalse(f.model.canCalibrate)
         XCTAssertTrue(f.model.calibrationBlockers.contains{$0.contains("镜头姿态已失效")})
+    }
+    func testTransientErrorBetweenReadsStillInvalidatesTheOldCalibration() {
+        let f=Fixture(); f.calibrate(); f.model.start(); f.step()
+        f.clock.failed=true; f.clock.failed=false
+        f.step()
+        XCTAssertFalse(f.model.isFollowing)
+        XCTAssertFalse(f.model.controller.hasCalibration)
+        XCTAssertTrue(f.model.canCalibrate)
+        XCTAssertFalse(f.model.canStart)
+        XCTAssertTrue(f.camera.connected)
+    }
+    func testChangedMotionSessionCannotReuseCalibrationEvenWithFreshSamples() {
+        let f=Fixture(); f.calibrate(); f.model.start(); f.step()
+        f.clock.generation += 1
+        f.step()
+        XCTAssertFalse(f.model.isFollowing)
+        XCTAssertFalse(f.model.controller.hasCalibration)
+        XCTAssertFalse(f.model.canStart)
+        XCTAssertTrue(f.camera.connected)
     }
 }

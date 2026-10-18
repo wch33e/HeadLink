@@ -1702,7 +1702,7 @@
                     let receivedAt=ProcessInfo.processInfo.systemUptime
                     let video = bytes.count > 6 && bytes[6] == 0x02
                     metrics.withLock {
-                        $0.record(.datagram(video: video), at: ProcessInfo.processInfo.systemUptime,
+                        $0.record(.datagram(video: video), at: receivedAt,
                             generation: generation)
                     }
                     let awaitingAck = !handshake.withLock { $0.acknowledged }

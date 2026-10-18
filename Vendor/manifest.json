@@ -161,7 +161,7 @@
     "Sources/OpenCineDJIApple/DjiAppleConnectionTransport+Native.swift": "c0bd0d7443fb600228826c57bdd8115842f71ba0cd49c67b3cccae7ffaeecfdd",
     "Sources/OpenCineDJIApple/DjiAppleControlEndpoint+iOS.swift": "f6871bd4e8f965dedd6cbfe3a80077806b8425a95b74a3a72b0fd36675613a1a",
     "Sources/OpenCineDJIApple/DjiAppleControlExchange.swift": "20d1e5c8674f9fa6ea18e0890bb3163afb2a4e1c1f3a45c02f0bb304f0a29438",
-    "Sources/OpenCineDJIApple/DjiAppleDatalink.swift": "06394a30582104dbded51ceb5b5390eeca1bf3f4e20c3271500394771064f460",
+    "Sources/OpenCineDJIApple/DjiAppleDatalink.swift": "3bfb4fa41d4f280a14f97f75ec12cda226a8ff30135520bfc99c501a785d9932",
     "Sources/OpenCineDJIApple/DjiAppleEditorReconciliation.swift": "87becb749b0725a50adf70b2669192ab9666b5231cb95b2bbe3f4c2a181f80de",
     "Sources/OpenCineDJIApple/DjiAppleGimbalControl.swift": "b2324abaf24df0201134bafa7c555685d345f1202cbda231526e23466d58cbb6",
     "Sources/OpenCineDJIApple/DjiAppleHeartbeatEndpoint+iOS.swift": "089479d6128cb8526b868a265b4a994358e277581c3f77716278085313d368df",

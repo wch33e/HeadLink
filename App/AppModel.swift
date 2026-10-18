@@ -31,6 +31,8 @@ import OpenCineDJIApple
     @ObservationIgnored private var previousCalibrationReadiness:Bool?
     @ObservationIgnored private var previousMotionSample:MotionSample?
     @ObservationIgnored private var lastMotionConsumerGap:Double?
+    @ObservationIgnored private var lastMotionSourceErrors:Int?
+    @ObservationIgnored private var lastMotionGeneration:UInt64?
     var axes:ControlAxes = .both { didSet { pause(); controller.axes=axes; UserDefaults.standard.set(axes.rawValue,forKey:"axes") } }
     var mountMode:MountMode = .fixed { didSet {
         if oldValue != mountMode { revokeExperiment(); UserDefaults.standard.set(mountMode.rawValue,forKey:"mountMode") }
@@ -102,10 +104,7 @@ import OpenCineDJIApple
         let camera=suppliedCamera ?? PocketCamera()
         let motion=HeadphoneMotion()
         self.camera=camera; self.motion=motion
-        self.readMotion=readMotion ?? {
-            let value=motion.read()
-            return .init(sample:value.0,callbackHz:value.1,failed:value.2)
-        }
+        self.readMotion=readMotion ?? { motion.read() }
         now=camera.now
         axes=ControlAxes(rawValue:UserDefaults.standard.string(forKey:"axes") ?? "") ?? .both
         response=ResponseMode(rawValue:UserDefaults.standard.string(forKey:"response") ?? "") ?? .immediate
@@ -178,8 +177,19 @@ import OpenCineDJIApple
     private func captureInputs() {
         let frame=ControlInputFrame.capture(readMotion:readMotion,readCamera:{camera.capturePose()},clock:{camera.now})
         now=frame.evaluatedAt; callbackHz=frame.motion.callbackHz
+        loopGap=lastStepAt.map{now-$0} ?? 0
         let wasFollowing=isFollowing
-        if frame.motion.failed { camera.stopTargets(); controller.motionUnavailable(); probe.reset() }
+        let wasCalibrating=controller.state == .calibrating
+        let sourceRestarted=frame.motion.sourceGeneration.map{lastMotionGeneration != nil && $0 != lastMotionGeneration} ?? false
+        if sourceRestarted { lastMotionSourceErrors=nil; lastSensor=nil; previousMotionSample=nil; lastMotionConsumerGap=nil }
+        if let generation=frame.motion.sourceGeneration { lastMotionGeneration=generation }
+        let newSourceError=frame.motion.sourceErrorCount.map{$0 > (lastMotionSourceErrors ?? 0)} ?? false
+        if let count=frame.motion.sourceErrorCount { lastMotionSourceErrors=count }
+        if frame.motion.failed || newSourceError || sourceRestarted {
+            camera.stopTargets(); controller.motionUnavailable(); probe.reset()
+            if sourceRestarted { recordEvent("motion_session_changed",detail:"new_generation; calibration_invalidated") }
+            if newSourceError { recordEvent("motion_callback_error",detail:frame.motion.failed ? "callback_error_active" : "callback_error_recovered_before_read; calibration_still_invalidated") }
+        }
         if camera.connected != connectedBefore { controller.connectionChanged(camera.connected); connectedBefore=camera.connected }
         if let s=frame.motion.sample,s.sensorTime != lastSensor {
             lastMotionConsumerGap=previousMotionSample.map{s.receivedAt-$0.receivedAt}
@@ -194,7 +204,13 @@ import OpenCineDJIApple
         else if probe.referenceChanged { label=(headAge.map{$0 <= 0.2} ?? false) ? "姿态输入已恢复；上次观察参考失效，需明确重新校准" : "等待新姿态；上次观察参考已失效" }
         else { label=(headAge.map{$0 <= 0.2} ?? false) ? "数据正常" : "等待新的运动数据" }
         if motionLabel != label { motionLabel=label }
-        if wasFollowing && !isFollowing { stopAfterInputFailure() }
+        let sourceReason=sourceRestarted ? "耳机运动会话已更换，原校准已失效" : ((frame.motion.failed || newSourceError) ? (frame.motion.failed ? "耳机运动回调报告错误" : "耳机曾报告回调错误，输入已恢复，但原校准已失效") : nil)
+        if wasFollowing && !isFollowing { stopAfterInputFailure(reasonOverride:sourceReason) }
+        if wasCalibrating,controller.state != .calibrating {
+            let reason=sourceReason ?? controller.invalidation?.reason.message ?? inputFailureDescription()
+            notice="校准已中断："+reason
+            recordEvent("calibration_interrupted",detail:reason)
+        }
     }
     func step() {
         camera.checkHealth(); camera.checkVideoHealth(); captureInputs()
@@ -313,9 +329,9 @@ import OpenCineDJIApple
         default:return "控制状态失效：\(controller.failure.map{String(describing:$0)} ?? controller.state.rawValue)"
         }
     }
-    private func stopAfterInputFailure() {
+    private func stopAfterInputFailure(reasonOverride:String? = nil) {
         camera.stopTargets()
-        let reason=inputFailureDescription()
+        let reason=reasonOverride ?? inputFailureDescription()
         recordEvent("input_paused",detail:reason)
         notice="跟随已暂停："+reason+"；需要重新校准。这不等同于相机断连。"
     }

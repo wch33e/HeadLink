@@ -25,12 +25,12 @@ final class HeadphoneMotion: @unchecked Sendable {
                 rotationRate:sqrt(r.x*r.x+r.y*r.y+r.z*r.z),gravity:.init(x:g.x,y:g.y,z:g.z)),at:t)
         }
     }
-    func read() -> (MotionSample?,Double,Bool) {
+    func read() -> MotionReading {
         lock.lock(); defer { lock.unlock() }
         let value=delivery.reading(at:ProcessInfo.processInfo.systemUptime)
-        return (value.sample,value.callbackHz,value.failed)
+        return .init(sample:value.sample,callbackHz:value.callbackHz,failed:value.failed,sourceErrorCount:value.sourceErrorCount,sourceGeneration:generation)
     }
-    var diagnostic:MotionDeliveryDiagnostic { lock.lock(); defer { lock.unlock() }; return delivery.diagnostic }
+    var diagnostic:MotionDeliveryDiagnostic { lock.lock(); defer { lock.unlock() }; var value=delivery.diagnostic; value.generation=generation; return value }
     func stop() { manager.stopDeviceMotionUpdates(); lock.lock(); generation &+= 1; delivery = .init(); lock.unlock() }
     deinit { manager.stopDeviceMotionUpdates() }
 }

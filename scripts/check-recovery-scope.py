@@ -5,7 +5,7 @@ root=pathlib.Path(__file__).resolve().parents[1]
 base=json.loads((root/'docs/RECOVERY_BASELINE.json').read_text())
 allowed={
  'App/AppModel.swift','App/PocketCamera.swift','App/HeadphoneMotion.swift','App/Views.swift',
- 'App/SettingsView.swift','App/CommissioningView.swift','Sources/HeadLinkCore/TrackingDiagnostics.swift',
+ 'App/SettingsView.swift','App/CommissioningView.swift','Sources/HeadLinkCore/TrackingDiagnostics.swift','Sources/HeadLinkCore/ControlInputFrame.swift',
  'project.yml','scripts/package-ipa.py','scripts/ui-review.sh','.github/workflows/ios.yml','Vendor/manifest.json',
  'Vendor/OpenCine/HEADLINK_MODIFICATIONS.md',
  'Vendor/OpenCine/Sources/OpenCineDJIApple/DjiAppleDatalink.swift',
@@ -25,6 +25,10 @@ assert workflow==base['deviceWorkflow'],'Original device workflow changed'
 ui='\n'.join((root/p).read_text() for p in ['App/Views.swift','App/SettingsView.swift','App/CommissioningView.swift'])
 assert not re.search(r'\.(task|onAppear|onDisappear)\b',ui),'UI starts a new lifecycle task'
 assert ui.count('PreviewSurface(runtime:model.camera.decoder)')==1
+views=(root/'App/Views.swift').read_text()
+renderer=views[views.index('struct PreviewSurface:'):views.index('func stateLabel(')]
+ui_baseline=json.loads((root/'docs/UI_BASELINE_HASHES.json').read_text())
+assert hashlib.sha256(renderer.encode()).hexdigest()==ui_baseline['rendererSHA256'],'Video rendering adapter changed'
 assert not re.search(r'\b(AppModel|PocketCamera|HeadphoneMotion|MonitorLiveVideoRuntime)\s*\(',ui)
 print(json.dumps({'baseline':base['compiledCommit'],'protectedOriginalFiles':len(base['files'])-len(allowed),
  'trackingMathAndLimits':'byte_identical','head200msCamera300ms':'unchanged',
