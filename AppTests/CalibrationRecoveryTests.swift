@@ -41,9 +41,10 @@ private final class ObservationChanges:@unchecked Sendable {
         var targets:[Duml.Frame]=[]
         var commands:[Duml.Frame]=[]
         var stops=0
+        var onStop:(()->Void)?
         func beginNativeTargets(token:UInt64) { self.token=token }
         func noteNativeTarget(_ frame:Duml.Frame,token:UInt64) -> Bool { guard token == self.token else { return false }; targets.append(frame); return true }
-        func endNativeTargets(token:UInt64) { guard self.token == token else { return }; self.token=nil; stops += 1 }
+        func endNativeTargets(token:UInt64) { guard self.token == token else { return }; self.token=nil; stops += 1; onStop?() }
         func send(_ frame:Duml.Frame) -> UInt16 { commands.append(frame); return UInt16(commands.count) }
     }
     @MainActor final class Fixture {
@@ -225,5 +226,14 @@ private final class ObservationChanges:@unchecked Sendable {
         XCTAssertEqual(f.endpoint.stops,0)
         XCTAssertTrue(f.model.isFollowing)
         XCTAssertTrue(f.model.controller.hasCalibration)
+    }
+    func testCalibrationUsesInputsCapturedAfterSynchronousStopHandoff() {
+        let f=Fixture(); f.calibrate(); f.model.start(); f.step()
+        f.endpoint.onStop={ f.clock.time += 0.35 }
+        defer { f.endpoint.onStop=nil }
+        f.model.calibrate()
+        XCTAssertNotEqual(f.model.controller.state,.calibrating)
+        XCTAssertFalse(f.model.canCalibrate)
+        XCTAssertTrue(f.model.calibrationBlockers.contains{$0.contains("镜头姿态已失效")})
     }
 }

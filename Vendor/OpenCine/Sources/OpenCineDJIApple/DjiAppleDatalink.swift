@@ -16,6 +16,7 @@
         public var lastValidIngressAt:Double?
         public var lastParsedAt:Double?
         public var lastDeliveredAt:Double?
+        public var lastDeliveredIngressAt:Double?
         public var lastDeliveryLag:Double?
         public var lastValidGap:Double?
         public var modeFamilyRaw:UInt8?
@@ -1892,6 +1893,7 @@
                     let deliveredAt=ProcessInfo.processInfo.systemUptime
                     wire.withLock {
                         $0.headLinkAttitudeTrace.lastDeliveredAt=deliveredAt
+                        $0.headLinkAttitudeTrace.lastDeliveredIngressAt=receivedAt
                         $0.headLinkAttitudeTrace.lastDeliveryLag=deliveredAt-receivedAt
                     }
                 }

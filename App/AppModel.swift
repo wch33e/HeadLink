@@ -327,8 +327,8 @@ import OpenCineDJIApple
     }
     func calibrate() {
         defer { publishPresentation() }
-        camera.checkHealth(); captureInputs()
-        camera.stopTargets(); synchronizeLimits()
+        camera.checkHealth(); camera.stopTargets()
+        captureInputs(); synchronizeLimits()
         guard canCalibrate else { notice=calibrationBlockers.joined(separator:"；"); recordEvent("calibration_rejected",detail:notice ?? "unknown"); return }
         do { try controller.beginCalibration(at:now); probe.reset(); if let sample=controller.sample { probe.ingest(sample) }; calibrationStarted=now; showingCalibration=true; notice=nil; recordEvent("calibration_started",detail:"user_action") }
         catch { notice="校准未开始："+((error as? TrackingError) == .gravityUnavailable ? "耳机重力参考不可用" : String(describing:error)); recordEvent("calibration_rejected",detail:notice ?? "unknown") }
