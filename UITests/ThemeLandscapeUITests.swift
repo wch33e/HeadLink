@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 
 /// Real SwiftUI presentations and real simulator system traits, with explicit controlled motion/transport.
 /// No hardware, live video or physical pointing claim is made by these tests.
