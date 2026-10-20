@@ -2,7 +2,9 @@
 
 ## 版本与证据范围
 
-从 PR #3 的 `afb84dfd1bb27358f35f9c5322796e485542c7f1` 继续；其已交付 1.2.3（18）真正编译提交为 `dfd4714b9d60605a1a2740fab61d53083ab32ccf`，SHA-256 `7db0cbd817de68bcf07ebf54b489d9c753b1abd261de0be31e6343a727163a38`。旧目录 HeadLink-Recovery 与旧 IPA 完整保留，本轮在 HeadLink-Foreground 独立目录工作。新版本 1.2.4，仍用 org.headlink.personal。
+从 PR #3 的 `afb84dfd1bb27358f35f9c5322796e485542c7f1` 继续；其已交付 1.2.3（18）真正编译提交为 `dfd4714b9d60605a1a2740fab61d53083ab32ccf`，SHA-256 `7db0cbd817de68bcf07ebf54b489d9c753b1abd261de0be31e6343a727163a38`。旧目录 HeadLink-Recovery 与旧 IPA 完整保留，本轮在 HeadLink-Foreground 独立目录工作。新版本 **1.2.4（20）**，仍用 `org.headlink.personal`。真正编译提交 **`d1f5620cd69570336a7b565dec5e43d100fdc6e8`**，分支 `fix/calibration-input-recovery`；本报告后续文档提交不改变包内代码来源。
+
+IPA SHA-256：`136ad75918a83eb17866577b0c21e94ba6a4444f0f5ffa1f2b8a09799146c9dc`，大小3,797,311字节。包内来源、版本、arm64、最低iOS17、权限、原VerifiedProfiles和未签名状态均已校验；没有测试bundle、后台模式或Release受控输入入口。用原Sideloadly账户签名覆盖安装。
 
 当前手机安装包和本次运行尚未有版本来源证据，不能仅凭画面文字认定手机必然是第18包。本轮没有收到可读取的新录屏或 schema6 JSON 文件；已有 Downloads/HeadLink-diagnostics.json 仍是无构建号的 schema2。按用户列出的2秒、22/24/26秒现象对照源码，未宣称逐帧看过文件。
 
@@ -37,9 +39,30 @@
 
 ## 自动验证
 
-本地67项核心/协议/恢复策略测试通过。云端 Release iOS、App模型/恢复编排、实际呈现面板受控输入测试及原UI回归结果待构建填写。
+本地和云端 **67项核心/协议/恢复策略测试通过**。[云端运行20，第2次尝试](https://github.com/wch33e/HeadLink/actions/runs/39351825618/attempts/2) 已全部成功，包与测试固定到同一编译提交。
+
+实际执行日志确认：
+
+- **23项App测试**：18项AppModel/输入与校准回归、5项原相机恢复编排。覆盖控制循环已存在时设备稍后就绪、最多3次恢复、短暂失活保留有效校准但不自动运动、后台保存原身份并停止、观察参考只影响显示、稳定原因ID、录像独立/超时/未来时间拒绝，以及恢复身份不符、取消竞争和有界超时。
+- **4项界面测试**：1项在真实呈现的SwiftUI校准面板内使用受控输入，触发失效/恢复，断言按钮纵向位置变化不超过1点、不可用条件真实生效，然后完成校准→明确开始→暂停并验证独立录像入口；另3项原导航/布局/配置保留回归。
+- **1项原大字体横屏检查**通过；Release iOS构建通过。
+- 297个受保护原文件、跟随数学与限位、安装身份/权限/保存键、视频渲染器均通过范围检查。哈希只是范围证明，不能替代运行测试。
+
+首轮19发现测试辅助类缺少MainActor，已修复；20第一次尝试在模拟器BackBoard启动阶段180秒超时，App测试未执行，未记为通过。保留失败日志后重试同一提交的失败任务，第二次才实际执行上述测试并成功。没有靠改业务阈值让CI变绿。
 
 受控测试不是相机/耳机硬件验证。新增 XCUITest 只在 DEBUG 且明确测试参数下使用受控输入；Release不包含该入口。该测试验证实际呈现校准面板中的失效/恢复、按钮位置、校准完成、明确开始/暂停以及独立录像状态路径，不声称视频和物理响应通过。
+
+## 代码定位
+
+| 环节 | 位置 |
+| --- | --- |
+| activate不再跳过采集/相机恢复；唯一循环 | App/AppModel.swift:151 |
+| 有界采集恢复；策略与200ms安全门分开 | App/AppModel.swift:186、Sources/HeadLinkCore/MotionRecovery.swift |
+| 新鲜样本只重建显示观察参考 | App/AppModel.swift:230 |
+| 前后台相机会话、原SSID核对后恢复 | App/PocketCamera+Foreground.swift:8、:15、:24；App/ForegroundCameraRecovery.swift |
+| 真实录像状态、超时及订阅恢复 | App/PocketCamera.swift:102、:303、:309 |
+| 稳定原因身份与底部固定操作区 | App/AppModel.swift:69、App/Views.swift:319、:328 |
+| 实际呈现面板失效恢复回归 | UITests/CalibrationFlowUITests.swift |
 
 ## 最短真机验收与尚缺证据
 
