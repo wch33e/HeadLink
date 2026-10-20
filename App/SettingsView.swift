@@ -122,8 +122,13 @@ private struct AboutHeadLinkView:View {
         Form {
             Section {
                 LabeledContent("版本",value:(Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "开发构建"))
+                LabeledContent("构建号",value:Bundle.main.object(forInfoDictionaryKey:"CFBundleVersion") as? String ?? "不可用")
+                if let provenance=BuildProvenance.current {
+                    LabeledContent("源码分支",value:provenance.branch)
+                    Text("源码提交：\(provenance.commit)").font(.footnote.monospaced()).textSelection(.enabled)
+                } else { Text("源码提交未嵌入此测试构建").font(.footnote).foregroundStyle(.secondary) }
                 Text("原生 iPhone 工具，数据在本地处理。无需账号，无广告，不上传运动数据或相机画面。")
-                Text("本次仅改版界面。固定机身1∶1已由用户验证；改版后的连接、录制和跟随仍待真机回归，移动机身补偿未验证。").font(.footnote).foregroundStyle(.secondary)
+                Text("本版修复固定机身基础流程与输入状态刷新；受控输入测试不代表真机通过，移动机身补偿未实现。").font(.footnote).foregroundStyle(.secondary)
             }
             Section {
                 NavigationLink("开源许可与署名") {

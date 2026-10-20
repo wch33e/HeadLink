@@ -1,6 +1,12 @@
 import SwiftUI
 @main struct HeadLinkApp: App {
-    @State private var model=AppModel()
+    @State private var model=HeadLinkApp.initialModel()
+    @MainActor private static func initialModel() -> AppModel {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-HeadLinkControlledInputs") { return DebugFlowFixture.makeModel() }
+        #endif
+        return AppModel()
+    }
     @Environment(\.scenePhase) private var scenePhase
     var body: some Scene {
         WindowGroup {

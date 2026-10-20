@@ -10,7 +10,7 @@ public enum CalibrationInvalidationReason:String,Codable,Sendable {
         case .motionUnavailable:return "耳机运动服务中断"
         case .invalidQuaternion:return "耳机姿态数值无效"
         case .sensorTimeReset:return "耳机传感器时间戳重置或倒退"
-        case .sampleGap:return "耳机回调采样间隔超过200ms"
+        case .sampleGap:return "控制器收到的耳机样本间隔超过200ms（源回调与消费延迟见诊断）"
         case .referenceJump:return "耳机姿态参考突变"
         case .vertical:return "头部方向接近竖直，解算不可用"
         case .calibrationRequested:return "用户明确开始新的校准"

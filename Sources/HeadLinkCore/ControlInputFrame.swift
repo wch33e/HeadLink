@@ -4,8 +4,10 @@ public struct MotionReading:Sendable {
     public let sample:MotionSample?
     public let callbackHz:Double
     public let failed:Bool
-    public init(sample:MotionSample?,callbackHz:Double,failed:Bool) {
-        self.sample=sample; self.callbackHz=callbackHz; self.failed=failed
+    public let sourceErrorCount:Int?
+    public let sourceGeneration:UInt64?
+    public init(sample:MotionSample?,callbackHz:Double,failed:Bool,sourceErrorCount:Int? = nil,sourceGeneration:UInt64? = nil) {
+        self.sample=sample; self.callbackHz=callbackHz; self.failed=failed; self.sourceErrorCount=sourceErrorCount; self.sourceGeneration=sourceGeneration
     }
 }
 

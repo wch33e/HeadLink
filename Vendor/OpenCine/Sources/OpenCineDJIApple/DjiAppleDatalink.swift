@@ -7,6 +7,22 @@
     import OpenCineMotion
     import os
 
+    /// Receipt/parse/delivery are different stages. No camera sensor clock is inferred.
+    public struct DjiAppleAttitudeTrace:Codable,Sendable {
+        public var frames=0
+        public var validFrames=0
+        public var payloadLength:Int?
+        public var lastIngressAt:Double?
+        public var lastValidIngressAt:Double?
+        public var lastParsedAt:Double?
+        public var lastDeliveredAt:Double?
+        public var lastDeliveredIngressAt:Double?
+        public var lastDeliveryLag:Double?
+        public var lastValidGap:Double?
+        public var modeFamilyRaw:UInt8?
+        public var maximumValidGap=0.0
+    }
+
     /// The DUML-over-UDP datalink on iOS: opens the socket to 192.168.2.1, runs the handshake, registers
     /// the app, subscribes to status, and pumps keepalives - using the byte builders from the (tested)
     /// core. This is the stateful half the core deliberately leaves out (session id, the sequence
@@ -159,6 +175,7 @@
             var nativeProgramEpoch: UInt64 = 0
             var nativeProgramPose: GimbalWaypoint?
             var nativeProgramPoseAt: TimeInterval?
+            var headLinkAttitudeTrace=DjiAppleAttitudeTrace()
             var nativeZoomFeedback: [String: (frame: Duml.Frame, receivedAt: TimeInterval)] = [:]
             var nativeZoomSentAt: TimeInterval?
             var gimbalStickHeld = false
@@ -178,6 +195,17 @@
         /// Called (on the main actor) for every DUML frame the camera pushes.
         /// Status, control ACKs, and media-list chunks (`0x00/0x27`) all arrive here.
         public var onStatusFrame: ((Duml.Frame) -> Void)?
+        /// Same frames, with the UDP receipt time preserved across the main-actor hop.
+        public var onTimedStatusFrame: ((Duml.Frame,Double) -> Void)?
+        public var headLinkAttitudeSnapshot:(pose:GimbalWaypoint?,receivedAt:Double?,trace:DjiAppleAttitudeTrace) {
+            wire.withLock { ($0.nativeProgramPose,$0.nativeProgramPoseAt,$0.headLinkAttitudeTrace) }
+        }
+        #if DEBUG
+        /// Test-target-only ingress fixture: exercises the production parser/mailbox, not hardware.
+        public func acceptAttitudeFramesForTesting(_ frames:[Duml.Frame],receivedAt:Double) {
+            noteNativeProgramPose(frames,receivedAt:receivedAt)
+        }
+        #endif
         /// Query authority is captured on the native receive queue, before the Main hop.
         public nonisolated let mediaIngress = DjiAppleMediaIngressSlot()
         public var onMediaFrame: ((Duml.Frame, DjiAppleMediaIngress?) -> Void)?
@@ -900,10 +928,9 @@
             return true
         }
 
-        nonisolated private func noteNativeProgramPose(_ frames: [Duml.Frame]) {
+        nonisolated private func noteNativeProgramPose(_ frames: [Duml.Frame],receivedAt:Double) {
             for frame in frames {
                 let zoomKey = GimbalProgramZoom.feedbackKey(frame)
-                let receivedAt = ProcessInfo.processInfo.systemUptime
                 let zoomFailure = wire.withLock { w -> String? in
                     if let zoomKey {
                         w.nativeZoomFeedback[zoomKey] = (frame, receivedAt)
@@ -915,9 +942,13 @@
                     return w.nativeProgram?.zoom?.failureReason
                 }
                 if let zoomFailure { _ = cancelNativeProgramOnQueue(reason: zoomFailure) }
-                guard frame.cmdSet == 0x04, frame.cmdId == 0x05,
-                    GimbalStick.isAttitude(frame.payload)
-                else { continue }
+                guard frame.cmdSet == 0x04, frame.cmdId == 0x05 else { continue }
+                wire.withLock {
+                    $0.headLinkAttitudeTrace.frames += 1
+                    $0.headLinkAttitudeTrace.payloadLength=frame.payload.count
+                    $0.headLinkAttitudeTrace.lastIngressAt=receivedAt
+                }
+                guard GimbalStick.isAttitude(frame.payload) else { continue }
                 guard
                     let reportedPose = GimbalWaypoint.from(
                         yawTenth: GimbalStick.yawTenthDeg(frame.payload),
@@ -926,6 +957,15 @@
                 else { continue }
                 let now = ProcessInfo.processInfo.systemUptime
                 wire.withLock { w in
+                    if let previous=w.headLinkAttitudeTrace.lastValidIngressAt {
+                        let gap=receivedAt-previous
+                        w.headLinkAttitudeTrace.lastValidGap=gap
+                        w.headLinkAttitudeTrace.maximumValidGap=max(w.headLinkAttitudeTrace.maximumValidGap,gap)
+                    }
+                    w.headLinkAttitudeTrace.validFrames += 1
+                    w.headLinkAttitudeTrace.lastValidIngressAt=receivedAt
+                    w.headLinkAttitudeTrace.lastParsedAt=now
+                    w.headLinkAttitudeTrace.modeFamilyRaw=GimbalModeFamily.parse(frame.payload)?.rawValue
                     var pose = reportedPose
                     if let zoom = w.nativeProgram?.zoom?.liveZoom { pose.zoom = zoom }
                     if var run = w.nativeProgram, run.engine.isPaused,
@@ -943,7 +983,7 @@
                         w.nativeProgram = run
                     }
                     w.nativeProgramPose = pose
-                    w.nativeProgramPoseAt = now
+                    w.nativeProgramPoseAt = receivedAt
                 }
             }
         }
@@ -1006,6 +1046,7 @@
             closed = true
             onAccessUnit = nil
             onStatusFrame = nil
+            onTimedStatusFrame = nil
             onMediaFrame = nil
             if let ticket = mediaIngress.capture() { mediaIngress.retire(ticket) }
             ackTimer?.cancel()
@@ -1071,6 +1112,7 @@
                 wire.withLock {
                     $0.nativeProgramPose = nil
                     $0.nativeProgramPoseAt = nil
+                    $0.headLinkAttitudeTrace = .init()
                     $0.nativeZoomFeedback = [:]
                 }
             }
@@ -1101,6 +1143,12 @@
             sendAck()
             sendDuml(Commands.gimbalInit(seq: 0))
             sendAck()
+        }
+
+        /// Read-only recovery of the original subscription set; no gimbal init or mode SET.
+        public func refreshStatusSubscriptions() {
+            guard !closed,!rebuilding,handshakeAcked else { return }
+            subscribe()
         }
 
         private func subscribe() {
@@ -1657,9 +1705,10 @@
                 },
                 ingest: { [weak self] bytes in
                     guard genLock.withLock({ $0 }) == generation else { return }
+                    let receivedAt=ProcessInfo.processInfo.systemUptime
                     let video = bytes.count > 6 && bytes[6] == 0x02
                     metrics.withLock {
-                        $0.record(.datagram(video: video), at: ProcessInfo.processInfo.systemUptime,
+                        $0.record(.datagram(video: video), at: receivedAt,
                             generation: generation)
                     }
                     let awaitingAck = !handshake.withLock { $0.acknowledged }
@@ -1738,7 +1787,7 @@
                     }
                     let pktType = bytes.count > 6 ? bytes[6] : 0xFF
                     let frames = DumlTransport.scanFrames(bytes)
-                    self?.noteNativeProgramPose(frames)
+                    self?.noteNativeProgramPose(frames,receivedAt:receivedAt)
                     for frame in frames where frame.cmdSet == 0x02 && frame.cmdId == 0x8E {
                         let pid: String
                         if let parsed = CameraParam.parseGetReply(frame.payload) {
@@ -1769,7 +1818,7 @@
                         guard let self, !self.closed, self.udpGeneration == generation,
                             self.conn === socket
                         else { return }
-                        self.ingest(bytes, frames: frames, mediaAdmission: mediaAdmission)
+                        self.ingest(bytes, frames: frames, mediaAdmission: mediaAdmission,receivedAt:receivedAt)
                     }
                 }
             )
@@ -1818,7 +1867,7 @@
 
         private func ingest(
             _ datagram: [UInt8], frames: [Duml.Frame],
-            mediaAdmission: DjiAppleMediaIngress?
+            mediaAdmission: DjiAppleMediaIngress?,receivedAt:Double
         ) {
             // 0x01 telemetry carries a cursor at [10:12]. Video (0x02) has no such field - Mimo echoes
             // the video packet's own transport seq (bytes 4-5) instead, 96% of ACKs in the capture.
@@ -1846,7 +1895,16 @@
                     lastSelfieFlipReply.withLock { $0 = Date() }
                 }
                 if frame.cmdSet == 0, frame.cmdId == 0x27 { onMediaFrame?(frame, mediaAdmission) }
+                if frame.cmdSet == 0x04,frame.cmdId == 0x05 {
+                    let deliveredAt=ProcessInfo.processInfo.systemUptime
+                    wire.withLock {
+                        $0.headLinkAttitudeTrace.lastDeliveredAt=deliveredAt
+                        $0.headLinkAttitudeTrace.lastDeliveredIngressAt=receivedAt
+                        $0.headLinkAttitudeTrace.lastDeliveryLag=deliveredAt-receivedAt
+                    }
+                }
                 onStatusFrame?(frame)
+                onTimedStatusFrame?(frame,receivedAt)
             }
         }
 
