@@ -75,7 +75,10 @@ import OpenCineDJIApple
         if rangeLimited { return "目标已限位" }
         if isFollowing { return "跟随中" }
         if controller.state == .calibrating { return "校准中" }
-        if let issue=calibrationIssues.first { return issue.id == "mode" ? "等待云台模式" : issue.message }
+        if let issue=calibrationIssues.first {
+            return ["mode":"等待云台模式","mount":"移动模式未验证","profile":"当前型号未支持","gravity":"等待耳机方向参考","experiment":"请先停止诊断实验"][issue.id] ?? "等待输入就绪"
+        }
+        if controller.startBlocker(at:now) == .outsideLimits { return "相机回报超出范围" }
         if !controller.hasCalibration { return "等待校准" }
         if controller.state == .userPaused,let pauseReason { return pauseReason.summary }
         return trackingStatus

@@ -140,11 +140,11 @@ struct RootView:View {
     }
     private var recordButton:some View {
         Button { model.camera.toggleRecording() } label: {
-            Label(model.camera.actualRecording == true ? (dynamicType.isAccessibilitySize ? "停录" : "停止录像") : "录像",systemImage:model.camera.actualRecording == true ? "stop.circle" : "record.circle")
+            Label(model.camera.recordPending != nil ? "待确认" : (model.camera.actualRecording == true ? (dynamicType.isAccessibilitySize ? "停录" : "停止录像") : (model.camera.actualRecording == nil && model.camera.connected ? "待回报" : "录像")),systemImage:model.camera.actualRecording == true ? "stop.circle" : "record.circle")
                 .primaryControlLabel()
         }.buttonStyle(QuietButtonStyle()).foregroundStyle(.red)
             .disabled(model.camera.actualRecording == nil || model.camera.recordPending != nil)
-            .accessibilityLabel(model.camera.actualRecording == true ? "停止录像" : "开始录像").accessibilityIdentifier("recordToggle")
+            .accessibilityLabel(model.camera.recordPending != nil ? "等待录像请求确认" : (model.camera.actualRecording == nil && model.camera.connected ? "录像不可用：等待相机状态回报" : (model.camera.actualRecording == true ? "停止录像" : "开始录像"))).accessibilityIdentifier("recordToggle")
     }
 
     private var devices:some View {

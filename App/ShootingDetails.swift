@@ -14,6 +14,7 @@ struct ShootingDetailsSheet:View {
     @Bindable var model:AppModel
     @Binding var detent:PresentationDetent
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicType
     var body:some View {
         NavigationStack {
             ScrollView {
@@ -47,7 +48,7 @@ struct ShootingDetailsSheet:View {
                 .navigationTitle(model.camera.actualRecording == true ? "REC · 拍摄详情" : "拍摄详情").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement:.cancellationAction) {
-                        if model.isFollowing { Button("暂停跟随") { model.pause() }.accessibilityIdentifier("detailsPause") }
+                        if model.isFollowing { Button(dynamicType.isAccessibilitySize ? "暂停" : "暂停跟随") { model.pause() }.accessibilityLabel("暂停跟随").accessibilityIdentifier("detailsPause") }
                     }
                     ToolbarItem(placement:.confirmationAction) { Button("完成") { dismiss() }.accessibilityIdentifier("closeShootingDetails") }
                 }

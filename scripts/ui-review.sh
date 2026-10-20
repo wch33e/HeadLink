@@ -24,11 +24,17 @@ test_destination="platform=iOS Simulator,id=$review_device"
 boot_review_device() {
   python3 - "$review_device" <<'PY'
 import subprocess,sys
-try:
-    subprocess.run(['xcrun','simctl','bootstatus',sys.argv[1],'-b'],check=True,timeout=180)
-except subprocess.TimeoutExpired:
-    print('Simulator boot exceeded 180 seconds; App tests did not pass by waiting.',flush=True)
-    raise SystemExit(124)
+for attempt in range(2):
+    try:
+        subprocess.run(['xcrun','simctl','bootstatus',sys.argv[1],'-b'],check=True,timeout=180)
+        break
+    except subprocess.TimeoutExpired:
+        print('Simulator boot exceeded 180 seconds; no App test has passed.',flush=True)
+        if attempt == 1: raise SystemExit(124)
+        print('One bounded infrastructure retry: shut down and erase this disposable simulator.',flush=True)
+        subprocess.run(['xcrun','simctl','shutdown',sys.argv[1]],check=False,timeout=30)
+        subprocess.run(['xcrun','simctl','erase',sys.argv[1]],check=True,timeout=45)
+
 PY
 }
 boot_review_device
