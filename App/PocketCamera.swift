@@ -32,6 +32,7 @@ import HeadLinkCore
     @ObservationIgnored var lastSubmittedNativePitch:Double?
     @ObservationIgnored var targetSubmissions=0
     @ObservationIgnored var lastCommandIssue:String?
+    @ObservationIgnored var lastTargetRejection:CameraTargetRejection?
     @ObservationIgnored var lastStopAttemptAt:Double?
 
     @ObservationIgnored var status = CameraStatus()
@@ -225,27 +226,34 @@ import HeadLinkCore
     func startTargets() -> Bool {
         guard transportHealthy else { lastCommandIssue="控制传输未就绪，未建立目标队列"; return false }
         guard freshPose != nil else { lastCommandIssue="镜头姿态缺失或超过300ms，未建立目标队列"; return false }
-        lastCommandIssue=nil
+        lastCommandIssue=nil; lastTargetRejection=nil
         stopTargets(); tokenCounter &+= 1; targetToken=tokenCounter; controlEndpoint?.beginNativeTargets(token:tokenCounter); return true
     }
-    func submit(_ output: TrackingOutput) -> Bool {
-        submit(angles:output.command,nativePitch:output.nativePitch)
-    }
-    func submit(angles:Angles,nativePitch:Double) -> Bool {
-        guard transportHealthy else { lastCommandIssue="相机传输不可用"; return false }
-        guard let live=freshPose else { lastCommandIssue="镜头姿态已过期或布局不受支持"; return false }
-        guard abs((angles.yaw*10).rounded()/10-live.angles.yaw) < 180 else {
-            lastCommandIssue="目标与实际yaw相隔至少180°，直接指令可能穿越不可达扇区，已拒绝；请暂停后明确重新对齐"; return false
+    func submit(_ output: TrackingOutput) -> Bool { submitTarget(output).accepted }
+    func submit(angles:Angles,nativePitch:Double) -> Bool { submitTarget(angles:angles,nativePitch:nativePitch).accepted }
+    func submitTarget(_ output:TrackingOutput) -> TargetSubmission { submitTarget(angles:output.command,nativePitch:output.nativePitch) }
+    func submitTarget(angles:Angles,nativePitch:Double) -> TargetSubmission {
+        func reject(_ kind:CameraTargetRejection,_ detail:String) -> TargetSubmission {
+            lastTargetRejection=kind; lastCommandIssue=detail; return .rejected(kind)
         }
-        guard let token=targetToken else { lastCommandIssue="目标流未启动或已经暂停"; return false }
+        guard transportHealthy else { return reject(.transportUnavailable,"相机传输不可用") }
+        guard let live=freshPose else { return reject(.poseUnavailable,"镜头姿态已过期或布局不受支持") }
+        guard angles.finite,nativePitch.isFinite else { return reject(.encodingRejected,"目标角度数值无效") }
+        let encoded=Angles(yaw:(angles.yaw*10).rounded()/10,pitch:(angles.pitch*10).rounded()/10)
+        guard abs(encoded.yaw-live.angles.yaw) < 180 else {
+            return reject(.pathUnreachable,"目标路径不可达：与实际yaw相隔至少180°，未发送穿越扇区指令；原校准保留，回到可达方向后明确恢复")
+        }
+        guard let token=targetToken else { return reject(.streamInactive,"目标流未启动或已经暂停") }
         guard let frame=Commands.gimbalTimedTarget(yawDeg:angles.yaw,nativePitchDeg:nativePitch,duration:0.1) else {
-            lastCommandIssue="角度被已核实命令编码器拒绝"; return false
+            return reject(.encodingRejected,"角度被已核实命令编码器拒绝")
         }
         guard controlEndpoint?.noteNativeTarget(frame,token:token) == true else {
-            lastCommandIssue="目标队列拒绝：可能被底层新鲜度或可达路径检查停止"; return false
+            return reject(.mailboxRejected,"目标队列拒绝：需核查底层新鲜度、所有权或可达路径；未判定整机断连")
         }
-        lastSubmittedAngles=angles; lastSubmittedNativePitch=nativePitch; targetSubmissions += 1; lastCommandIssue=nil
-        return true
+        let encodedNative=(nativePitch*10).rounded()/10
+        lastSubmittedAngles=encoded; lastSubmittedNativePitch=encodedNative; targetSubmissions += 1
+        lastCommandIssue=nil; lastTargetRejection=nil
+        return .accepted(encoded,nativePitch:encodedNative)
     }
     func retryStatusReports() {
         guard connected,sceneActive else { return }
@@ -344,7 +352,7 @@ import HeadLinkCore
         connectRun?.retire(); connectRun=nil; heartbeat.stop(); exchange.stopBLEDrain(); exchange.retire(DjiAppleControlExchange.Error.disconnected)
         link?.close(); link=nil; bluetooth.disconnect(); decoder.close(); lastPresentedAt=nil
         lastAttitudeLength=nil; attitudeFrames=0; poseFrames=0; parameterAt=nil; attitudeTrace=nil; lastStatusReceipt=[:]
-        lastSubmittedAngles=nil; lastSubmittedNativePitch=nil; targetSubmissions=0; lastCommandIssue=nil; lastStopAttemptAt=nil
+        lastSubmittedAngles=nil; lastSubmittedNativePitch=nil; targetSubmissions=0; lastCommandIssue=nil; lastTargetRejection=nil; lastStopAttemptAt=nil
         connected=false; connectedAt=nil; sessionHealth = .init(); lastControlFrameAt=nil; pose=nil; status = .init(); statusAt=nil; recordingAt=nil
         recordPending=nil; recordDeadline=nil; wifiRequest=nil; message="未连接"; sessionSSID=nil; network.stop()
         if wasConnected { onDisconnected?() }

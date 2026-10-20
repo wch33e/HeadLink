@@ -14,6 +14,7 @@ import OpenCineDJIApple
     @ObservationIgnored var commissioning=CommissioningSession()
     var motionLabel="未准备好"
     var notice:String?
+    var pauseReason:FollowPauseReason?
     @ObservationIgnored var callbackHz=0.0
     @ObservationIgnored var sendHz=0.0
     @ObservationIgnored var now=ProcessInfo.processInfo.systemUptime
@@ -29,6 +30,7 @@ import OpenCineDJIApple
     @ObservationIgnored private var loopGap=0.0
     @ObservationIgnored private var events:[ControlEvent]=[]
     @ObservationIgnored private var previousCalibrationReadiness:Bool?
+    @ObservationIgnored private var previousRangeLimited=false
     @ObservationIgnored private var previousMotionSample:MotionSample?
     @ObservationIgnored private var lastMotionConsumerGap:Double?
     @ObservationIgnored private var lastMotionSourceErrors:Int?
@@ -63,6 +65,21 @@ import OpenCineDJIApple
         guard let sample=controller.sample,let gravity=sample.gravity else { return false }
         return (try? HeadDirectionReference(origin:sample.attitude,gravity:gravity)) != nil
     }
+    var rangeLimited:Bool { isFollowing && controller.output?.limitedByRange == true && controller.pose?.fresh(at:now) == true }
+    var shortShootingStatus:String {
+        if !camera.connected { return "相机未连接" }
+        if !camera.transportHealthy { return "控制传输未就绪" }
+        if controller.pose?.fresh(at:now) != true { return "等待镜头姿态" }
+        if headAge.map({$0 >= 0 && $0 < 0.2}) != true { return "等待耳机姿态" }
+        if camera.recordError != nil { return "录像请求未确认" }
+        if rangeLimited { return "目标已限位" }
+        if isFollowing { return "跟随中" }
+        if controller.state == .calibrating { return "校准中" }
+        if let issue=calibrationIssues.first { return issue.id == "mode" ? "等待云台模式" : issue.message }
+        if !controller.hasCalibration { return "等待校准" }
+        if controller.state == .userPaused,let pauseReason { return pauseReason.summary }
+        return trackingStatus
+    }
     var canCalibrate:Bool { calibrationBlockers.isEmpty }
     /// Shared by the live sheet and the action; evaluated against the same captured inputs/clock.
     var calibrationBlockers:[String] { calibrationIssues.map(\.message) }
@@ -88,19 +105,21 @@ import OpenCineDJIApple
         .init(model:camera.selected?.model.name ?? "",firmware:camera.status.firmware ?? "",
               firmwareSource:camera.status.firmware == nil ? "not-reported" : "camera-report")
     }
-    var blockers:[String] {
-        var result:[String]=[]
-        if !camera.connected { result.append("相机未连接") }
-        if !camera.transportHealthy { result.append("相机传输未就绪") }
-        if mountMode != .fixed { result.append("移动机身补偿未验证：目前没有独立机身朝向，不允许用固定机身映射跟随，避免重复转动") }
-        if !(headAge.map{$0 <= controller.freshnessThreshold} ?? false) { result.append("未收到新鲜耳机姿态（需小于200ms）") }
-        if !gravityAvailable { result.append("耳机重力参考缺失或头部接近竖直，无法建立水平朝向") }
-        if controller.pose?.fresh(at:now) != true { result.append("镜头姿态缺失或超过300ms") }
-        if let reason=camera.controlModeReadiness(at:now) { result.append(reason) }
-        if formalLimits == nil { result.append("当前识别型号尚无正式协议配置；仅支持真实识别的Osmo Pocket 4") }
-        if !profileReady { result.append("机型协议范围尚未就绪") }
-        if commissioning.running || commissioning.state == .awaitingConfirmation { result.append("旧诊断实验仍在进行，请先停止") }
-        if let rejection=controller.startBlocker(at:now),!result.contains(rejection.message) { result.append(rejection.message) }
+    var blockers:[String] { startIssues.map(\.message) }
+    var startIssues:[CalibrationIssue] {
+        var result:[CalibrationIssue]=[]
+        func add(_ id:String,_ message:String) { result.append(.init(id:id,message:message)) }
+        if !camera.connected { add("session","相机未连接") }
+        if !camera.transportHealthy { add("transport","相机传输未就绪") }
+        if mountMode != .fixed { add("mount","移动机身补偿未验证：目前没有独立机身朝向，不允许用固定机身映射跟随，避免重复转动") }
+        if !(headAge.map{$0 <= controller.freshnessThreshold} ?? false) { add("head_pose","未收到新鲜耳机姿态（需小于200ms）") }
+        if !gravityAvailable { add("gravity","耳机重力参考缺失或头部接近竖直，无法建立水平朝向") }
+        if controller.pose?.fresh(at:now) != true { add("camera_pose","镜头姿态缺失或超过300ms") }
+        if let reason=camera.controlModeReadiness(at:now) { add("mode",reason) }
+        if formalLimits == nil { add("profile","当前识别型号尚无正式协议配置；仅支持真实识别的Osmo Pocket 4") }
+        if !profileReady { add("limits","机型协议范围尚未就绪") }
+        if commissioning.running || commissioning.state == .awaitingConfirmation { add("experiment","旧诊断实验仍在进行，请先停止") }
+        if let rejection=controller.startBlocker(at:now),!result.contains(where:{$0.message == rejection.message}) { add("controller",rejection.message) }
         return result
     }
     var canStart:Bool { blockers.isEmpty }
@@ -125,7 +144,7 @@ import OpenCineDJIApple
             guard let self else { return }
             recordEvent(kind,detail:detail)
             if kind == "video_repair_start",isFollowing {
-                camera.stopTargets(); controller.pause()
+                camera.stopTargets(); controller.pause(); pauseReason = .videoRecovery
                 notice="图传恢复开始，已暂停跟随；恢复后不会自动启动，控制状态与视频分别显示"
             }
             publishPresentation()
@@ -169,7 +188,7 @@ import OpenCineDJIApple
         camera.stopTargets()
         controller.pause(invalidateCalibration:controller.state == .calibrating,reason:.sceneInactive)
         if commissioning.running { commissioning.abort(.canceled); controller.limits=nil }
-        if wasFollowing { notice="应用暂时失去活动状态，已暂停跟随；请回到前台后明确恢复" }
+        if wasFollowing { pauseReason = .inactive; notice="应用暂时失去活动状态，已暂停跟随；请回到前台后明确恢复" }
         publishPresentation()
     }
     func suspendControl() {
@@ -260,7 +279,7 @@ import OpenCineDJIApple
             camera.refreshControlInfo(); controlInfoAt=now
         }
         if isFollowing,controller.pose?.fresh(at:now) == true,let reason=camera.controlModeReadiness(at:now) {
-            camera.stopTargets(); controller.pause()
+            camera.stopTargets(); controller.pause(); pauseReason = .mode
             recordEvent("mode_readiness_paused",detail:reason)
             notice="跟随已暂停："+reason+"；恢复模式回报后可明确继续"
         }
@@ -280,19 +299,20 @@ import OpenCineDJIApple
             if commissioning.state == .failed { notice=commissioningFailure(commissioning.failure) }
         } else if isFollowing {
             if let output=controller.tick(at:now) {
-                if !camera.submit(output) {
+                let submission=camera.submitTarget(output)
+                if case let .rejected(kind)=submission {
                     // A command rejection stops motion, but is not proof that the head reference changed.
                     // Genuine stale/jumped input independently invalidates calibration in the controller.
-                    controller.pause(); camera.stopTargets()
-                    recordEvent("target_rejected",detail:camera.lastCommandIssue ?? "unknown")
+                    controller.pause(); camera.stopTargets(); pauseReason=kind == .pathUnreachable ? .path : .submission
+                    recordEvent("target_rejected",detail:kind.rawValue+":"+(camera.lastCommandIssue ?? "unknown"))
                     notice="跟随已暂停："+(camera.lastCommandIssue ?? "目标命令被拒绝")+"；未判定相机断连，请查看诊断"
                 }
-                if isFollowing {
+                if case let .accepted(executable,nativePitch:encodedNative)=submission,isFollowing {
                     let previous=feedback.reading?.state
-                    let check=feedback.update(command:output.command,nativePitch:output.nativePitch,
+                    let check=feedback.update(command:executable,nativePitch:encodedNative,
                         transitioning:output.transitioning,pose:controller.pose,at:now)
                     if check.state == .diverged {
-                        camera.stopTargets(); controller.pause()
+                        camera.stopTargets(); controller.pause(); pauseReason = .feedback
                         recordEvent("feedback_diverged",detail:feedbackSummary)
                         notice="相机姿态回报持续偏离已停稳目标，已暂停；请检查模式、方向、机身是否移动。未改倍率或基准"
                     } else if check.state == .withinTolerance,previous != .withinTolerance {
@@ -322,6 +342,11 @@ import OpenCineDJIApple
         }
     }
     private func publishPresentation() {
+        if rangeLimited != previousRangeLimited {
+            previousRangeLimited=rangeLimited
+            let detail=controller.output.map{String(format:"raw=%.2f,%.2f; limited=%.2f,%.2f",$0.raw.yaw,$0.raw.pitch,$0.limited.yaw,$0.limited.pitch)} ?? "no_active_limited_output"
+            recordEvent(rangeLimited ? "range_limited" : "range_clear",detail:detail)
+        }
         if previousCalibrationReadiness != canCalibrate {
             previousCalibrationReadiness=canCalibrate
             recordEvent("calibration_readiness",detail:canCalibrate ? "inputs_ready" : calibrationBlockers.joined(separator:"；"))
@@ -336,7 +361,7 @@ import OpenCineDJIApple
             pictureAspect:Double(camera.decoder.pictureAspect),firmware:camera.status.firmware,recording:camera.actualRecording,
             recordingSeconds:camera.actualRecording == true ? camera.status.recordElapsedSec : 0,
             testState:commissioning.state,receiptCount:commissioning.receipts.count,
-            probeReady:probe.movementObserved)
+            probeReady:probe.movementObserved,rangeLimited:rangeLimited)
         let update=presentationGate.updates(control:state,at:camera.now)
         if update.controls { controlRevision &+= 1 }
         if update.telemetry { telemetryRevision &+= 1 }
@@ -400,16 +425,17 @@ import OpenCineDJIApple
             }
             // Queue ownership is established without sending a target. Re-snapshot after
             // the synchronous UDP handoff, then establish the control-loop time origin.
-            captureInputs(); try controller.start(at:now); feedback = .init(); errorSince=nil
+            captureInputs(); try controller.start(at:now); feedback = .init(); errorSince=nil; pauseReason=nil
             recordEvent("following_started",detail:"native_queue_armed")
             notice="固定机身1∶1方向跟随中；倍率1.00，超出协议可达范围会明确限位"; haptic()
         } catch {
-            controller.pause(); camera.stopTargets()
+            controller.pause(); camera.stopTargets(); pauseReason = .start
             recordEvent("start_rejected",detail:String(describing:error))
             notice="跟随未启动："+(controller.lastStartRejection?.message ?? String(describing:error))
         }
     }
     func pause() { defer { publishPresentation() };
+        pauseReason = .user
         recordEvent("user_paused",detail:"user_action")
         camera.stopTargets(); controller.pause(); errorSince=nil
         if commissioning.running { commissioning.abort(.canceled); controller.limits=nil }
@@ -520,7 +546,7 @@ func commissioningFailure(_ reason:CommissioningError?) -> String {
 private struct ControlPresentation:Equatable {
     let state:TrackingState; let canStart:Bool; let canCalibrate:Bool; let profileReady:Bool; let hasCalibration:Bool
     let cameraFresh:Bool; let controlFresh:Bool; let previewLive:Bool; let pictureAspect:Double; let firmware:String?; let recording:Bool?; let recordingSeconds:Int
-    let testState:CommissioningState; let receiptCount:Int; let probeReady:Bool
+    let testState:CommissioningState; let receiptCount:Int; let probeReady:Bool; let rangeLimited:Bool
 }
 struct ControlEvent:Codable {
     let uptime:Double; let kind:String; let detail:String; let state:String; let hasCalibration:Bool

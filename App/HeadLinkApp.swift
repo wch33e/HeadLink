@@ -3,6 +3,9 @@ import SwiftUI
     @State private var model=HeadLinkApp.initialModel()
     @MainActor private static func initialModel() -> AppModel {
         #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-HeadLinkResetPresentation") {
+            for key in ["appearance","leftHanded"] { UserDefaults.standard.removeObject(forKey:key) }
+        }
         if ProcessInfo.processInfo.arguments.contains("-HeadLinkControlledInputs") { return DebugFlowFixture.makeModel() }
         #endif
         return AppModel()
@@ -10,7 +13,7 @@ import SwiftUI
     @Environment(\.scenePhase) private var scenePhase
     var body: some Scene {
         WindowGroup {
-            RootView(model:model).preferredColorScheme(.dark)
+            RootView(model:model).headLinkTheme()
                 .task { model.activate() }
                 .onChange(of:scenePhase) { _,phase in
                     switch phase {

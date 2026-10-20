@@ -88,19 +88,19 @@ private final class ObservationChanges:@unchecked Sendable {
         func frame(set:UInt8,id:UInt8,payload:[UInt8]) -> Duml.Frame {
             .init(sender:0,receiver:0,seq:1,flags:0,cmdSet:set,cmdId:id,payload:payload)
         }
-        func pose(at time:Double? = nil,yaw:Double = 0) {
+        func pose(at time:Double? = nil,yaw:Double = 0,pitch:Double = 0) {
             let receivedAt=time ?? clock.time
             var p=[UInt8](repeating:0,count:50)
             func put(_ value:Int16,_ offset:Int) { let bits=UInt16(bitPattern:value); p[offset]=UInt8(truncatingIfNeeded:bits); p[offset+1]=UInt8(truncatingIfNeeded:bits>>8) }
-            put(1800,0); put(Int16((yaw*10).rounded()),4); p[6]=0x80
+            put(Int16((Orientation.wrap(180-pitch)*10).rounded()),0); put(Int16((yaw*10).rounded()),4); put(Int16((-pitch*10).rounded()),20); p[6]=0x80
             let f=frame(set:4,id:5,payload:p)
             parser.acceptAttitudeFramesForTesting([f],receivedAt:receivedAt)
             camera.receive(f,receivedAt:receivedAt)
             camera.parameterAt=clock.time
         }
-        func step(_ delta:Double=0.025,withPose:Bool=true) {
+        func step(_ delta:Double=0.025,withPose:Bool=true,followTargetFeedback:Bool=false) {
             clock.time += delta
-            if withPose { pose() }
+            if withPose { pose(yaw:followTargetFeedback ? camera.lastSubmittedAngles?.yaw ?? 0 : 0,pitch:followTargetFeedback ? camera.lastSubmittedAngles?.pitch ?? 0 : 0) }
             model.step()
         }
         func calibrate() {
@@ -365,6 +365,76 @@ private final class ObservationChanges:@unchecked Sendable {
         XCTAssertNil(f.camera.actualRecording)
         f.camera.toggleRecording()
         XCTAssertTrue(f.endpoint.commands.isEmpty)
+    }
+
+    func testRangeOnlyPreservesSessionCalibrationDecoderAndIndependentRecording() {
+        let f=Fixture(); f.calibrate(); f.model.start(); f.step()
+        let id=f.model.controller.calibrationID,decoder=f.camera.decoder,parser=f.camera.link
+        func feed(_ yaw:Double) {
+            // Target-chain fixture has no video source; do not run an unrelated video watchdog.
+            f.camera.videoCheckAt=f.clock.time+0.025
+            f.clock.attitude = .axis(0,0,1,degrees:-yaw)
+            f.step(followTargetFeedback:true); f.recordReport(true)
+        }
+        for _ in 0..<3 {
+            for i in 1...80 { feed(-Double(i)) }
+            for _ in 0..<80 { feed(-80) }
+            XCTAssertTrue(f.model.rangeLimited)
+            XCTAssertEqual(f.camera.lastSubmittedAngles?.yaw,-48)
+            for d in stride(from:-79.0,through:-50.0,by:1) { feed(d); XCTAssertEqual(f.camera.lastSubmittedAngles?.yaw,-48) }
+            for d in -49...0 { feed(Double(d)) }
+            XCTAssertFalse(f.model.rangeLimited)
+            XCTAssertEqual(f.camera.lastSubmittedAngles?.yaw,0)
+            XCTAssertTrue(f.model.isFollowing && f.model.controller.hasCalibration)
+            XCTAssertEqual(f.model.controller.calibrationID,id)
+            XCTAssertTrue(f.camera.connected && f.camera.link === parser && f.camera.decoder === decoder)
+            XCTAssertEqual(f.camera.actualRecording,true)
+            XCTAssertEqual(f.endpoint.stops,0)
+        }
+        f.model.pause();feed(0)
+        XCTAssertFalse(f.model.isFollowing)
+        XCTAssertTrue(f.model.controller.hasCalibration)
+    }
+    func testUnreachablePathIsNotOrdinaryClippingAndPreservesCalibrationWhilePaused() {
+        let f=Fixture();f.calibrate();f.model.start();f.step()
+        for i in 1...90 {
+            f.clock.attitude = .axis(0,0,1,degrees:-Double(i)*2)
+            f.step() // actual fixture camera deliberately stays at zero; no 180-degree jump is sent.
+        }
+        XCTAssertEqual(f.camera.lastTargetRejection,.pathUnreachable)
+        XCTAssertEqual(f.model.controller.state,.userPaused)
+        XCTAssertTrue(f.model.controller.hasCalibration)
+        XCTAssertTrue(f.camera.connected)
+        XCTAssertFalse(f.model.rangeLimited)
+        XCTAssertTrue(f.camera.lastCommandIssue?.contains("原校准保留") == true)
+    }
+    func testFeedbackUsesEncodedSubmittedTargetAndMailboxFailureIsNotIgnoredAsLimit() {
+        let f=Fixture();f.calibrate();f.model.start();f.step()
+        f.clock.attitude = .axis(0,0,1,degrees:-1.234);f.step(followTargetFeedback:true)
+        XCTAssertEqual(f.model.feedbackReading?.target,f.camera.lastSubmittedAngles)
+        XCTAssertEqual(f.camera.lastSubmittedAngles?.yaw,1.2)
+        f.endpoint.token=999
+        f.step()
+        XCTAssertEqual(f.camera.lastTargetRejection,.mailboxRejected)
+        XCTAssertFalse(f.model.isFollowing)
+        XCTAssertTrue(f.model.controller.hasCalibration && f.camera.connected)
+    }
+    func testDetailsThemeAndLayoutConstructionAreDisplayOnlyDuringFollowingAndRecording() {
+        let f=Fixture();f.calibrate();f.model.start();f.step();f.recordReport(true)
+        let id=f.model.controller.calibrationID,parser=f.camera.link,decoder=f.camera.decoder,token=f.endpoint.token
+        for mode in AppearancePreference.allCases {
+            XCTAssertEqual(AppearancePreference(rawValue:mode.rawValue),mode)
+            _=SettingsView(model:f.model).body
+            _=ReadinessForm(model:f.model).body
+            _=ShootingDetailsSheet(model:f.model,detent:.constant(.large)).body
+            _=RootView(model:f.model).body
+        }
+        XCTAssertTrue(f.model.isFollowing && f.model.controller.hasCalibration && f.camera.connected)
+        XCTAssertEqual(f.model.controller.calibrationID,id)
+        XCTAssertTrue(f.camera.link === parser && f.camera.decoder === decoder)
+        XCTAssertEqual(f.endpoint.token,token)
+        XCTAssertEqual(f.camera.actualRecording,true)
+        XCTAssertEqual(f.endpoint.stops,0)
     }
 
 }

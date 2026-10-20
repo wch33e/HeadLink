@@ -8,6 +8,10 @@ struct SettingsView:View {
     var body:some View {
         NavigationStack {
             Form {
+                #if DEBUG
+                if DebugFlowFixture.current != nil { Section { DebugThemeLabel() }.listRowBackground(HeadLinkUI.group) }
+                #endif
+                Section { AppearancePicker() }.listRowBackground(HeadLinkUI.group)
                 Section {
                     Picker("控制轴",selection:$model.axes) {
                         Text("左右＋上下").tag(ControlAxes.both); Text("仅左右").tag(ControlAxes.yaw); Text("仅上下").tag(ControlAxes.pitch)
@@ -20,15 +24,17 @@ struct SettingsView:View {
                         ForEach(MountMode.allCases,id:\.self) { Text(LocalizedStringKey($0.title)).tag($0) }
                     }.accessibilityIdentifier("mountSetting")
                 } header: { Text("跟随") }
-                footer: { Text("平滑只改变过渡，停稳后收敛到原始目标。更改控制设置会暂停跟随。移动机身补偿未验证，当前没有独立机身姿态输入，移动模式不允许启动，避免身体和云台重复转动。") }
+                footer: { Text("更改控制设置会暂停跟随；查看说明不影响控制。") }.listRowBackground(HeadLinkUI.group)
+                Section { DisclosureGroup("参数与安装说明") {
+                    Text("平滑只改变过渡，停稳后收敛到原始目标。移动机身补偿未验证，当前没有独立机身姿态输入，移动模式不允许启动，避免身体和云台重复转动。")
+                } }.listRowBackground(HeadLinkUI.group)
                 Section {
                     Button {
-                        // Preserve the original explicit pause attached to this action.
-                        model.pause(); readiness=true
+                        readiness=true
                     } label: {
                         VStack(alignment:.leading,spacing:4) {
                             SettingTitle(title:"跟随状态与诊断",icon:"waveform.path")
-                            Text("打开此页会暂停跟随").font(.caption).foregroundStyle(.secondary)
+
                         }
                     }
                     .accessibilityIdentifier("openReadiness")
@@ -36,7 +42,7 @@ struct SettingsView:View {
                         SettingTitle(title:"实时数值与图传",icon:"chart.xyaxis.line")
                     }.accessibilityIdentifier("openLiveDiagnostics")
                     Button("清除校准",systemImage:"scope") { model.clearCalibration() }
-                }
+                }.listRowBackground(HeadLinkUI.group)
                 Section {
                     NavigationLink { DisplaySettingsView() } label: { SettingTitle(title:"画面与反馈",icon:"viewfinder") }
                         .accessibilityIdentifier("openDisplaySettings")
@@ -44,13 +50,13 @@ struct SettingsView:View {
                         .accessibilityIdentifier("openLocalDiagnostics")
                     NavigationLink { AboutHeadLinkView() } label: { SettingTitle(title:"关于 HeadLink",icon:"info.circle") }
                         .accessibilityIdentifier("openAbout")
-                }
+                }.listRowBackground(HeadLinkUI.group)
             }
             .headLinkList().navigationTitle("更多").navigationBarTitleDisplayMode(.inline)
             .navigationDestination(isPresented:$readiness) { ReadinessForm(model:model) }
             .toolbar { ToolbarItem(placement:.confirmationAction) { Button("完成") { dismiss() }.accessibilityIdentifier("closeSettings") } }
         }
-        .presentationDetents([.large]).presentationDragIndicator(.visible).presentationCornerRadius(HeadLinkUI.radius)
+        .headLinkTheme().presentationDetents([.large]).presentationDragIndicator(.visible).presentationCornerRadius(HeadLinkUI.radius)
     }
 }
 
@@ -66,7 +72,7 @@ private struct DisplaySettingsView:View {
                 Toggle("左手布局",isOn:$leftHanded).accessibilityIdentifier("leftHandedSetting")
                 Toggle("拍摄页保持常亮",isOn:$keepAwake).accessibilityIdentifier("keepAwakeSetting")
                 Toggle("操作震动",isOn:$haptics).accessibilityIdentifier("hapticsSetting")
-            }
+            }.listRowBackground(HeadLinkUI.group)
         }.headLinkList().navigationTitle("画面与反馈").navigationBarTitleDisplayMode(.inline)
     }
 }
@@ -80,7 +86,7 @@ private struct LocalDiagnosticsView:View {
                 Toggle("记录诊断",isOn:$recordDiagnostics)
             } footer: {
                 Text("最多保留最近约10分钟的角度、状态和频率；正式跟随配置就绪后自动记录。无视频、设备标识或网络密码；退出应用后不保留记录。")
-            }
+            }.listRowBackground(HeadLinkUI.group)
             Section {
                 Button("生成脱敏诊断文件",systemImage:"doc.badge.plus") { model.exportDiagnostics() }
                 if let url=model.exportURL { ShareLink("分享 JSON",item:url) }
@@ -89,7 +95,7 @@ private struct LocalDiagnosticsView:View {
                     if let url=model.exportURL { try? FileManager.default.removeItem(at:url) }
                     model.exportURL=nil
                 }
-            }
+            }.listRowBackground(HeadLinkUI.group)
         }.headLinkList().navigationTitle("本地诊断").navigationBarTitleDisplayMode(.inline)
     }
 }
@@ -99,7 +105,7 @@ private struct LiveDiagnosticsView:View {
     var body:some View {
         let _=model.controlRevision
         Form {
-            Section {
+            Section { DisclosureGroup("跟随配置与说明") {
                 Text(model.axes == .both ? "左右＋上下 1∶1" : model.axes == .yaw ? "仅左右 1∶1" : "仅上下 1∶1").font(.body.weight(.medium))
                 Text(model.mountMode == .fixed ? "机身竖直固定 · 重力水平参考 · 倍率1.00" : "移动机身补偿未验证，跟随不可启动").font(.footnote).foregroundStyle(.secondary)
                 if !model.profileReady { Text("等待匹配真实机型的正式协议配置").foregroundStyle(.orange) }
@@ -112,7 +118,8 @@ private struct LiveDiagnosticsView:View {
                 }
                 Text(model.isFollowing ? "目标随头部更新，保持姿势即保持目标" : "校准成功后请明确点击开始跟随").font(.footnote)
             }
-            Section("精度与诊断") { DiagnosticsPanel(model:model) }
+            }.listRowBackground(HeadLinkUI.group)
+            Section("精度与诊断") { DiagnosticsPanel(model:model) }.listRowBackground(HeadLinkUI.group)
         }.headLinkList().navigationTitle("实时数值与图传").navigationBarTitleDisplayMode(.inline)
     }
 }
@@ -129,12 +136,12 @@ private struct AboutHeadLinkView:View {
                 } else { Text("源码提交未嵌入此测试构建").font(.footnote).foregroundStyle(.secondary) }
                 Text("原生 iPhone 工具，数据在本地处理。无需账号，无广告，不上传运动数据或相机画面。")
                 Text("本版修复固定机身基础流程与输入状态刷新；受控输入测试不代表真机通过，移动机身补偿未实现。").font(.footnote).foregroundStyle(.secondary)
-            }
+            }.listRowBackground(HeadLinkUI.group)
             Section {
                 NavigationLink("开源许可与署名") {
                     ScrollView { Text(licenseText).font(.footnote).textSelection(.enabled).padding() }.navigationTitle("开源许可")
                 }
-            } footer: { Text("使用 OpenCine / OpenPocketCine 的 Apache-2.0 开源实现。与 Apple、DJI 无官方关联。") }
+            } footer: { Text("使用 OpenCine / OpenPocketCine 的 Apache-2.0 开源实现。与 Apple、DJI 无官方关联。") }.listRowBackground(HeadLinkUI.group)
         }.headLinkList().navigationTitle("关于 HeadLink").navigationBarTitleDisplayMode(.inline)
     }
     private var licenseText:String {

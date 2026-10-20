@@ -40,6 +40,10 @@ for p in pathlib.Path(sys.argv[1]).rglob('*'):
         p.unlink()
 PY
 }
+xcrun simctl ui "$review_device" appearance light
+python3 scripts/monitor-theme-requests.py "$review_device" > build/ui-review/system-theme.log 2>&1 &
+theme_monitor_pid=$!
+trap 'kill "$theme_monitor_pid" 2>/dev/null || true' EXIT
 review_status=0
 xcodebuild -project HeadLink.xcodeproj -scheme HeadLinkUIReview -destination "$test_destination" \
   -derivedDataPath build/UIReview -resultBundlePath build/ui-review/navigation.xcresult \
@@ -56,6 +60,7 @@ large_text_status=0
 xcodebuild -project HeadLink.xcodeproj -scheme HeadLinkUIReview -destination "$test_destination" \
   -derivedDataPath build/UIReview -resultBundlePath build/ui-review/large-text.xcresult \
   -only-testing:HeadLinkUITests/HeadLinkUITests/testLandscapeControlsRemainReachable \
+  -only-testing:HeadLinkUITests/ThemeLandscapeUITests/testBothLandscapeDirectionsAndLeftHandedLayoutPreserveActivePipeline \
   -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test-without-building | tee build/ui-review/large-text.log || large_text_status=$?
 xcrun xcresulttool export attachments --path build/ui-review/large-text.xcresult --output-path build/ui-review/large-text-screenshots
 prune_recordings build/ui-review/large-text-screenshots
