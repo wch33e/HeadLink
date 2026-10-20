@@ -1145,6 +1145,12 @@
             sendAck()
         }
 
+        /// Read-only recovery of the original subscription set; no gimbal init or mode SET.
+        public func refreshStatusSubscriptions() {
+            guard !closed,!rebuilding,handshakeAcked else { return }
+            subscribe()
+        }
+
         private func subscribe() {
             var subId = Commands.firstSubId
             for key in subscriptionKeys {

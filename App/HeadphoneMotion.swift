@@ -2,13 +2,24 @@ import CoreMotion
 import Foundation
 import HeadLinkCore
 
+protocol HeadphoneMotionService:AnyObject {
+    var available:Bool { get }
+    var active:Bool { get }
+    var authorization:CMAuthorizationStatus { get }
+    var diagnostic:MotionDeliveryDiagnostic { get }
+    func start()
+    func stop()
+    func read() -> MotionReading
+}
+
 /// Sensor callback runs off the UI queue. A single lock-protected slot prevents callback backlog.
-final class HeadphoneMotion: @unchecked Sendable {
+final class HeadphoneMotion: HeadphoneMotionService, @unchecked Sendable {
     private let manager=CMHeadphoneMotionManager()
     private let queue: OperationQueue = { let q=OperationQueue(); q.name="HeadLink.motion"; q.maxConcurrentOperationCount=1; q.qualityOfService = .userInteractive; return q }()
     private let lock=NSLock()
     private var delivery=MotionDelivery()
     private var generation: UInt64=0
+    var active:Bool { manager.isDeviceMotionActive }
     var available: Bool { manager.isDeviceMotionAvailable }
     var authorization: CMAuthorizationStatus { CMHeadphoneMotionManager.authorizationStatus() }
     func start() {

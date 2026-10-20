@@ -6,7 +6,7 @@ import OpenCineApple
 extension PocketCamera {
     var controlReceiveFresh:Bool { lastControlFrameAt.map{now-$0 <= 3} ?? false }
     func beginVideoSession() {
-        connectionEpoch &+= 1; connectedAt=now
+        connectionEpoch &+= 1; connectedAt=now; subscriptionAttempts=0; lastSubscriptionAttemptAt=nil
         videoPolicy = .init(); videoCheckAt=0; videoHistory=[]; videoHistoryAt=0
         lastCompleteAccessUnitAt=nil; lastAcceptedSampleAt=nil; lastPresentedAt=nil
         videoMessage="等待真实视频帧"
@@ -18,7 +18,7 @@ extension PocketCamera {
             packetAt:ingress?.lastVideoDatagramAge.map{time-$0},accessUnitAt:lastCompleteAccessUnitAt,
             decoderOutputAt:decoder.nativeOutputAge.map{time-$0},presentedAt:lastPresentedAt,
             decoderFailed:decoder.isDecoderWedged || decoder.displayedImageRemoved,
-            awaitingKeyframe:decoder.awaitingIDR || decoder.referenceRecoveryNeeded,cameraSetAt:lastCameraSetAt)
+            awaitingKeyframe:decoder.awaitingIDR || decoder.referenceRecoveryNeeded,cameraSetAt:lastCameraSetAt,controlFrameAt:lastControlFrameAt)
     }
     func captureVideoDiagnostic() {
         let sample=videoSample(),metrics=decoder.nativeDecodeTotals,queue=link?.incidentQueue,ingress=link?.incidentIngress
@@ -50,6 +50,7 @@ extension PocketCamera {
         if input.live { message="视频源帧持续更新" }
         else if videoPolicy.state == .failed { message="图传恢复未成功："+videoPolicy.reason+"；可手动重试图传，控制状态另行显示" }
         else if videoPolicy.state == .recovering { message="图传恢复中（\(videoPolicy.attempts)/3）："+videoPolicy.reason }
+        else if videoPolicy.reason.contains("control_alive_shared_transport_kept") { message="图传恢复未成功；控制仍有回报，已保留控制会话，可手动重试图传" }
         else { message="视频暂停，正在检查接收、组帧和解码" }
         if videoMessage != message { videoMessage=message }
         guard let action,let endpoint=link else { return }

@@ -1,6 +1,7 @@
 import XCTest
 import Observation
 import SwiftUI
+import CoreMotion
 import HeadLinkCore
 import OpenCineDJI
 import OpenCineDJIApple
@@ -49,17 +50,35 @@ private final class ObservationChanges:@unchecked Sendable {
         func endNativeTargets(token:UInt64) { guard self.token == token else { return }; self.token=nil; stops += 1; onStop?() }
         func send(_ frame:Duml.Frame) -> UInt16 { commands.append(frame); return UInt16(commands.count) }
     }
+    @MainActor final class FakeMotion:HeadphoneMotionService {
+        let clock:Clock
+        var available=true
+        var active=true
+        var deliver=true
+        var authorization:CMAuthorizationStatus = .authorized
+        var starts=0,stops=0
+        init(_ clock:Clock) { self.clock=clock }
+        var diagnostic:MotionDeliveryDiagnostic { .init() }
+        func start() { guard available,!active else { return }; starts += 1; active=true; clock.generation += 1 }
+        func stop() { stops += 1; active=false; clock.generation += 1 }
+        func read() -> MotionReading {
+            if active,available,deliver { return clock.reading }
+            return .init(sample:nil,callbackHz:0,failed:false,sourceErrorCount:clock.sourceErrors,sourceGeneration:clock.generation)
+        }
+    }
     @MainActor final class Fixture {
         let clock=Clock(),endpoint=Endpoint()
         let camera:PocketCamera
+        let motion:FakeMotion
         let model:AppModel
         let parser:DjiAppleDatalink
         init() {
             let clock=self.clock
+            motion=FakeMotion(clock)
             camera=PocketCamera(clock:{clock.time},controlEndpoint:endpoint)
             parser=DjiAppleDatalink.loopbackForTesting(port:1)
             camera.link=parser
-            model=AppModel(camera:camera,readMotion:{clock.reading})
+            model=AppModel(camera:camera,motion:motion)
             camera.selected = .init(id:UUID(),name:"TEST FIXTURE",model:CameraModel.resolve(modelId:0x21,name:"OsmoPocket4-TEST"),modelId:0x21)
             camera.connected=true; camera.connectedAt=clock.time
             camera.status.gimbalModeFamily = .follow
@@ -257,4 +276,87 @@ private final class ObservationChanges:@unchecked Sendable {
         XCTAssertFalse(f.model.canStart)
         XCTAssertTrue(f.camera.connected)
     }
+    func testActivateDoesNotSkipLateMotionWhenLoopAlreadyExists() {
+        let f=Fixture(); f.motion.active=false; f.motion.available=false
+        f.model.activate(); defer { f.model.suspendControl() }
+        XCTAssertEqual(f.motion.starts,0)
+        f.motion.available=true
+        f.model.activate()
+        XCTAssertEqual(f.motion.starts,1)
+        f.model.activate(); f.step()
+        XCTAssertEqual(f.motion.starts,1)
+        f.motion.deliver=false
+        for _ in 0..<30 { f.clock.time += 1; f.model.step() }
+        XCTAssertEqual(f.motion.starts,3)
+        f.model.activate()
+        XCTAssertEqual(f.motion.starts,3)
+    }
+    func testBackgroundStopsMotionAndPreservesOnlyOriginalRecoveryIdentity() {
+        let f=Fixture(); f.camera.sessionSSID="FIXTURE-SSID"
+        f.calibrate(); f.model.start(); f.step()
+        f.model.deactivate()
+        XCTAssertFalse(f.model.isFollowing)
+        XCTAssertFalse(f.model.controller.hasCalibration)
+        XCTAssertFalse(f.motion.active)
+        XCTAssertFalse(f.camera.connected)
+        XCTAssertEqual(f.camera.resumeTarget?.ssid,"FIXTURE-SSID")
+        XCTAssertEqual(f.camera.resumeTarget?.sighting.id,f.camera.selected?.id)
+        XCTAssertEqual(f.camera.lastDisconnect?.reason,"app_background")
+        f.camera.disconnect()
+        XCTAssertNil(f.camera.resumeTarget) // User disconnect never silently reconnects.
+    }
+    func testShortInactiveReturnsFreshWithoutReconnectingOrAutomaticallyMoving() {
+        let f=Fixture(); f.calibrate(); f.model.start(); f.step()
+        let parser=f.camera.link,starts=f.motion.starts
+        f.model.pauseForInactiveScene()
+        XCTAssertTrue(f.camera.connected)
+        XCTAssertTrue(f.model.controller.hasCalibration)
+        f.model.activate(); defer { f.model.suspendControl() }
+        XCTAssertTrue(f.camera.link === parser)
+        XCTAssertEqual(f.motion.starts,starts)
+        XCTAssertFalse(f.model.isFollowing)
+        f.step(); f.model.start()
+        XCTAssertTrue(f.model.isFollowing)
+    }
+    func testFreshSamplesRebuildOnlyObservationAfterHeadReferenceLoss() {
+        let f=Fixture(); f.calibrate(); f.model.start(); f.step()
+        f.clock.attitude = .axis(0,0,1,degrees:90); f.step()
+        XCTAssertFalse(f.model.controller.hasCalibration)
+        XCTAssertFalse(f.model.isFollowing)
+        XCTAssertNotNil(f.model.probe.look)
+        XCTAssertFalse(f.model.probe.referenceChanged)
+        XCTAssertTrue(f.model.motionLabel.contains("采集正常"))
+        XCTAssertEqual(f.model.controller.invalidation?.reason,.referenceJump)
+    }
+    func testMillisecondChangesKeepTheSameReasonIdentityAndNeverEnableStaleCalibration() {
+        let f=Fixture(); f.model.showingCalibration=true
+        f.step(0.313,withPose:false)
+        let a=f.model.calibrationIssues.first{$0.id == "camera_pose"}
+        f.step(0.073,withPose:false)
+        let b=f.model.calibrationIssues.first{$0.id == "camera_pose"}
+        XCTAssertEqual(a?.id,b?.id); XCTAssertNotEqual(a?.message,b?.message)
+        XCTAssertFalse(f.model.canCalibrate)
+        f.step(); f.calibrate()
+        XCTAssertTrue(f.model.canStart)
+    }
+    func testRecordingIsIndependentAndTimeoutDoesNotInventActualState() {
+        let f=Fixture()
+        XCTAssertFalse(f.model.controller.hasCalibration)
+        XCTAssertNil(f.camera.actualRecording)
+        f.camera.toggleRecording(); XCTAssertTrue(f.endpoint.commands.isEmpty)
+        f.recordReport(false); f.camera.toggleRecording()
+        XCTAssertEqual(f.camera.recordPending,true)
+        f.step(4.1)
+        XCTAssertNil(f.camera.recordPending)
+        XCTAssertNil(f.camera.actualRecording)
+        XCTAssertNotNil(f.camera.recordError)
+        let sent=f.endpoint.commands.count
+        f.camera.toggleRecording(); XCTAssertEqual(f.endpoint.commands.count,sent)
+        f.recordReport(false)
+        XCTAssertFalse(f.camera.actualRecording ?? true)
+        XCTAssertNil(f.camera.recordError)
+        f.camera.toggleRecording(); XCTAssertEqual(f.endpoint.commands.count,sent+1)
+        XCTAssertFalse(f.model.controller.hasCalibration)
+    }
+
 }

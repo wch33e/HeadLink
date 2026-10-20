@@ -156,13 +156,16 @@ struct RootView:View {
                             Label(LocalizedStringKey($0),systemImage:"exclamationmark.circle").foregroundStyle(.orange)
                         }
                     }
+                    if let reason=model.camera.recordBlocker,model.camera.connected {
+                        Text(LocalizedStringKey(reason)).foregroundStyle(.secondary)
+                    }
                     if let error=model.camera.recordError {
                         Label(LocalizedStringKey(error),systemImage:"record.circle").foregroundStyle(.orange)
                     }
                 }.font(.footnote).frame(maxWidth:.infinity,alignment:.leading).padding(12)
             }
-            .frame(maxHeight:maxHeight)
-            .fixedSize(horizontal:false,vertical:true)
+            .frame(height:maxHeight,alignment:.top)
+            .transaction { $0.animation=nil }
             .background(.black.opacity(0.9),in:RoundedRectangle(cornerRadius:16))
         }
     }
@@ -172,7 +175,7 @@ struct RootView:View {
             if leftHanded { recordButton; followButton; calibrateButton }
             else { calibrateButton; followButton; recordButton }
         }
-        .padding(8).floatingSurface()
+        .padding(8).floatingSurface().transaction { $0.animation=nil }
     }
     private var accessibleControls:some View {
         VStack(spacing:8) {
@@ -266,7 +269,14 @@ struct RootView:View {
                 SecureCredential(password:request.password)
                 Button("已加入 Wi-Fi，验证连接") { model.camera.confirmWiFi() }.frame(minHeight:44)
             } else {
+                if model.camera.canRetryOriginal {
+                    Button("恢复原相机通信与预览") { model.camera.retryOriginalConnection() }.frame(minHeight:44)
+                        .accessibilityIdentifier("resumeOriginalCamera")
+                }
                 Button("搜索相机",systemImage:"magnifyingglass") { model.camera.scan() }.frame(minHeight:44)
+                if model.camera.connected {
+                    Button("重新获取相机状态") { model.camera.retryStatusReports() }.frame(minHeight:44)
+                }
                 Button("断开",systemImage:"link") { model.camera.disconnect() }.frame(minHeight:44)
             }
         } header: { Label("Pocket 相机",systemImage:"camera") }
@@ -296,6 +306,9 @@ struct CalibrationSheet:View {
         NavigationStack {
             ScrollView {
                 VStack(alignment:.leading,spacing:24) {
+                    #if DEBUG
+                    DebugCalibrationInputControls()
+                    #endif
                     Image(systemName:"scope").font(.largeTitle).foregroundStyle(HeadLinkUI.accent).accessibilityHidden(true)
                     Text("看向你想设定的正前方，并让镜头对准同一方向。").font(.title2.weight(.medium))
                     Text(model.controller.state == .calibrating ? "正在检查稳定性，请保持头部和机身静止" : "准备好后，建立新的方向对应关系").font(.body)
@@ -303,18 +316,28 @@ struct CalibrationSheet:View {
                     if model.canCalibrate {
                         Text("当前输入有效").font(.footnote).accessibilityIdentifier("calibrationInputsReady")
                     } else {
-                        ForEach(model.calibrationBlockers,id:\.self) { Text(LocalizedStringKey($0)).font(.footnote).foregroundStyle(.orange) }
+                        ForEach(model.calibrationIssues) { issue in
+                            Text(LocalizedStringKey(issue.message)).font(.footnote).foregroundStyle(.orange)
+                                .monospacedDigit().accessibilityIdentifier("calibrationReason_"+issue.id)
+                        }
                     }
                     if let notice=model.notice { Text("上次操作：\(notice)").font(.footnote).foregroundStyle(.secondary) }
-                    if model.controller.state == .calibrating { ProgressView().accessibilityIdentifier("calibrationProgress") }
-                    else {
-                        Button("开始校准") { model.calibrate() }.buttonStyle(.borderedProminent)
-                            .controlSize(.large).disabled(!model.canCalibrate).accessibilityIdentifier("beginCalibration")
-                    }
-                    Button("取消") { model.clearCalibration(); model.showingCalibration=false }.frame(minHeight:44)
+
                 }.frame(maxWidth:.infinity,alignment:.leading).padding(24)
             }.navigationTitle("校准").navigationBarTitleDisplayMode(.inline)
-        }
+            .safeAreaInset(edge:.bottom) {
+                VStack(spacing:8) {
+                    ProgressView().opacity(model.controller.state == .calibrating ? 1 : 0)
+                        .frame(height:16).accessibilityHidden(model.controller.state != .calibrating)
+                        .accessibilityIdentifier("calibrationProgress")
+                    Button("开始校准") { model.calibrate() }.buttonStyle(.borderedProminent)
+                        .controlSize(.large).disabled(!model.canCalibrate || model.controller.state == .calibrating)
+                        .accessibilityIdentifier("beginCalibration")
+                    Button("取消") { model.clearCalibration(); model.showingCalibration=false }.frame(minHeight:44)
+                }.frame(maxWidth:.infinity).padding(.horizontal,24).padding(.vertical,8)
+                    .background(HeadLinkUI.canvas).transaction { $0.animation=nil }
+            }
+        }.transaction { $0.animation=nil }
         .presentationDetents([.medium,.large]).presentationDragIndicator(.visible)
         .presentationCornerRadius(HeadLinkUI.radius)
     }

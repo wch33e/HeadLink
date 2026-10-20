@@ -4,8 +4,8 @@ import hashlib,json,pathlib,re
 root=pathlib.Path(__file__).resolve().parents[1]
 base=json.loads((root/'docs/RECOVERY_BASELINE.json').read_text())
 allowed={
- 'App/AppModel.swift','App/PocketCamera.swift','App/HeadphoneMotion.swift','App/Views.swift',
- 'App/SettingsView.swift','App/CommissioningView.swift','Sources/HeadLinkCore/TrackingDiagnostics.swift','Sources/HeadLinkCore/ControlInputFrame.swift',
+ 'Sources/HeadLinkCore/VideoRecoveryPolicy.swift','App/PocketCamera+Video.swift','App/AppModel.swift','App/PocketCamera.swift','App/HeadphoneMotion.swift','App/Views.swift',
+ 'App/HeadLinkApp.swift','App/SettingsView.swift','App/CommissioningView.swift','Sources/HeadLinkCore/TrackingDiagnostics.swift','Sources/HeadLinkCore/ControlInputFrame.swift',
  'project.yml','scripts/package-ipa.py','scripts/ui-review.sh','.github/workflows/ios.yml','Vendor/manifest.json',
  'Vendor/OpenCine/HEADLINK_MODIFICATIONS.md',
  'Vendor/OpenCine/Sources/OpenCineDJIApple/DjiAppleDatalink.swift',
@@ -18,7 +18,7 @@ assert not unexpected,'Unexpected baseline changes: '+', '.join(unexpected)
 project=(root/'project.yml').read_text()
 project=re.sub(r'\n  HeadLinkAppTests:.*?\nschemes:', '\nschemes:',project,flags=re.S)
 project=project.replace('\n        HeadLinkAppTests: [test]','').replace('targets: [HeadLinkUITests, HeadLinkAppTests]','targets: [HeadLinkUITests]')
-project=project.replace('MARKETING_VERSION: 1.2.3','MARKETING_VERSION: 1.2.2')
+project=project.replace('MARKETING_VERSION: 1.2.4','MARKETING_VERSION: 1.2.2')
 assert project==base['project'],'Unexpected production identity, permission, SDK or build setting change'
 workflow=(root/'.github/workflows/ios.yml').read_text().split('\n  ui-review:')[0].rstrip()+'\n'
 assert workflow==base['deviceWorkflow'],'Original device workflow changed'
