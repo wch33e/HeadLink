@@ -359,4 +359,12 @@ private final class ObservationChanges:@unchecked Sendable {
         XCTAssertFalse(f.model.controller.hasCalibration)
     }
 
+    func testFutureRecordingReportIsNotTreatedAsFreshTruth() {
+        let f=Fixture()
+        f.camera.receive(f.frame(set:2,id:0x80,payload:[UInt8](repeating:0,count:13)),receivedAt:f.clock.time+1)
+        XCTAssertNil(f.camera.actualRecording)
+        f.camera.toggleRecording()
+        XCTAssertTrue(f.endpoint.commands.isEmpty)
+    }
+
 }

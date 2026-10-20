@@ -25,7 +25,7 @@ import Foundation
         let epoch=generation
         actions.event("checking_original_camera")
         task=Task { [weak self] in
-            guard let self else { return }
+            guard let self,self.generation == epoch,!Task.isCancelled else { return }
             do {
                 try await actions.openIdentity()
                 try Task.checkCancellation()

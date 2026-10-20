@@ -87,7 +87,10 @@ import HeadLinkCore
         }),context:{ [weak self] in .init(canTransmit:self?.connected == true,reported:self?.status) })
     @ObservationIgnored private lazy var heartbeat = DjiAppleSessionHeartbeat(
         endpoint:.init(writeBLE:{ [weak self] in self?.bluetooth.send($0) },registerDatalink:{ [weak self] in self?.link?.reRegister() },transport:{ [weak self] in
-            .init(lastVideoAt:self?.link?.lastVideoPacketAt?.timeIntervalSinceReferenceDate,rebuilding:self?.link?.isRebuilding ?? false)
+            .init(lastVideoAt:self?.link?.lastVideoPacketAt?.timeIntervalSinceReferenceDate,
+                lastSelfieFlipReplyAt:self?.link?.lastSelfieFlipReplyAt?.timeIntervalSinceReferenceDate,
+                lastSelfieFlipSendAt:self?.link?.lastSelfieFlipSendAt?.timeIntervalSinceReferenceDate,
+                rebuilding:self?.link?.isRebuilding ?? false)
         }),
         context:{ [weak self] in .init(live:self?.connected == true,ownedConnection:true,
             pathReady:DjiAppleWiFiJoiner.isCameraPathReady(),sceneActive:self?.sceneActive == true,holdsMonitor:false,foregroundChecking:self?.foregroundRecovery.running == true,feedRepairing:self?.videoRecoveryTask != nil) },event:{ [weak self] event in
@@ -97,7 +100,7 @@ import HeadLinkCore
     var now: Double { clock() }
     var freshPose: CameraPose? { guard let pose,pose.fresh(at:now) else { return nil }; return pose }
     var actualRecording: Bool? {
-        guard connected,status.recordingReported,let t=recordingAt,now-t <= 2 else { return nil }
+        guard connected,status.recordingReported,let t=recordingAt,now >= t,now-t <= 2 else { return nil }
         return status.isRecording
     }
     var previewLive: Bool { videoSample().live }

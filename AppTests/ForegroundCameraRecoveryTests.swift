@@ -2,7 +2,7 @@ import XCTest
 @testable import HeadLink
 
 @MainActor final class ForegroundCameraRecoveryTests:XCTestCase {
-    final class Harness {
+    @MainActor final class Harness {
         let recovery=ForegroundCameraRecovery()
         var path=true
         var ssid="ORIGINAL"
@@ -60,4 +60,13 @@ import XCTest
         h.recovery.start(expectedSSID:"ORIGINAL",actions:h.actions); await h.drain()
         XCTAssertEqual(h.opened,1)
     }
+    func testImmediateCancellationCannotOpenAnEndpointLater() async {
+        let h=Harness()
+        h.recovery.start(expectedSSID:"ORIGINAL",actions:h.actions)
+        h.recovery.cancel()
+        await h.drain()
+        XCTAssertEqual(h.opened,0)
+        XCTAssertEqual(h.activated,0)
+    }
+
 }
