@@ -114,7 +114,13 @@ import OpenCineDJIApple
         response=ResponseMode(rawValue:UserDefaults.standard.string(forKey:"response") ?? "") ?? .immediate
         controller.axes=axes; controller.response=response; controller.requiresGravityReference=true
         mountMode=MountMode(rawValue:UserDefaults.standard.string(forKey:"mountMode") ?? "fixed") ?? .fixed
-        camera.onSessionEvent={ [weak self] kind,detail in self?.recordEvent(kind,detail:detail) }
+        camera.onSessionEvent={ [weak self] kind,detail in
+            guard let self else { return }
+            recordEvent(kind,detail:detail)
+            if kind == "foreground_camera_recovery",detail == "restored_no_motion" {
+                notice="相机通信已恢复；跟随保持停止，请重新校准后明确开始"
+            }
+        }
         camera.onVideoEvent={ [weak self] kind,detail in
             guard let self else { return }
             recordEvent(kind,detail:detail)
@@ -133,9 +139,13 @@ import OpenCineDJIApple
         }
         camera.onDisconnected={ [weak self] in
             guard let self else { return }
-            if camera.lastDisconnect?.wasConnected == true { recordEvent("camera_disconnect",detail:camera.lastDisconnect?.reason ?? "unknown") }
+            if camera.lastDisconnect?.wasConnected == true {
+                recordEvent(camera.lastDisconnect?.reason == "app_background" ? "camera_background_close" : "camera_disconnect",detail:camera.lastDisconnect?.reason ?? "unknown")
+            }
             controller.connectionChanged(false); connectedBefore=false; revokeExperiment()
-            if camera.lastDisconnect?.wasConnected == true { notice="相机连接中断："+(camera.lastDisconnect?.reason ?? "unknown") }
+            if camera.lastDisconnect?.wasConnected == true {
+                notice=camera.lastDisconnect?.reason == "app_background" ? "后台主动关闭通信；返回后核对原设备恢复，跟随保持停止" : "相机连接中断："+(camera.lastDisconnect?.reason ?? "unknown")
+            }
         }
     }
     func activate() {
