@@ -100,7 +100,14 @@ import UIKit
         app.buttons["closeShootingDetails"].tap()
         for hand in [false,true] {
             if hand {
-                app.buttons["openSettings"].tap();app.buttons["openDisplaySettings"].tap()
+                app.buttons["openSettings"].tap()
+                XCTAssertTrue(app.buttons["closeSettings"].waitForExistence(timeout:5))
+                let display=app.buttons["openDisplaySettings"]
+                for _ in 0..<6 {
+                    if display.exists && display.isHittable { break }
+                    app.swipeUp()
+                }
+                XCTAssertTrue(display.isHittable);display.tap()
                 let row=app.switches["leftHandedSetting"]
                 if row.value as? String != "1" { row.coordinate(withNormalizedOffset:.init(dx:0.9,dy:0.5)).tap() }
                 app.navigationBars.buttons.element(boundBy:0).tap();app.buttons["closeSettings"].tap()
@@ -131,10 +138,11 @@ import UIKit
         wait(app.staticTexts["trackingState"],"label == %@","跟随中")
         XCTAssertEqual(app.buttons["alwaysPause"].frame,rect)
         openDetails();XCTAssertEqual(pipeline(),state)
-        let bar=app.navigationBars.element(boundBy:0)
-        let start=app.coordinate(withNormalizedOffset:.zero).withOffset(.init(dx:app.frame.midX,dy:bar.frame.minY-10))
-        let end=app.coordinate(withNormalizedOffset:.init(dx:0.5,dy:0.75))
-        start.press(forDuration:0.1,thenDragTo:end)
+        let grabber=app.buttons.matching(NSPredicate(format:"label CONTAINS %@ OR label CONTAINS %@","表单控制柄","Grabber")).firstMatch
+        XCTAssertTrue(grabber.exists)
+        let start=grabber.coordinate(withNormalizedOffset:.init(dx:0.5,dy:0.5))
+        let end=app.coordinate(withNormalizedOffset:.init(dx:0.5,dy:0.9))
+        start.press(forDuration:0.05,thenDragTo:end)
         wait(app.staticTexts["fixtureDetent"],"exists == NO OR label != %@","expanded")
         if app.buttons["closeShootingDetails"].exists { app.buttons["closeShootingDetails"].tap() }
         openDetails();assertFollowingAndRecording();XCTAssertEqual(pipeline(),state)
