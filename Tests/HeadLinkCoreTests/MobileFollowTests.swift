@@ -93,6 +93,15 @@ struct MobileFollowTests {
         let later=m.tick(head:head(2,1.6),pose:lens(2,1.6),limits:limits,axes:.both,response:.immediate,at:1.6)
         #expect(later == .idle)
     }
+    @Test func independentCameraMotionDoesNotCauseALargeChase() throws {
+        var m=MobileFollow();try m.start(sample:head(0,1),pose:lens(0,1),at:1)
+        _=m.tick(head:head(3,1.025),pose:lens(0,1.025),limits:limits,axes:.both,response:.immediate,at:1.025)
+        let moved=m.tick(head:head(4,1.05),pose:lens(30,1.05),limits:limits,axes:.both,response:.immediate,at:1.05)
+        #expect(moved == .rebase && m.running && m.reference != nil)
+        let fresh=m.tick(head:head(5,1.075),pose:lens(30,1.075),limits:limits,axes:.both,response:.immediate,at:1.075)
+        guard case let .target(a,_,_)=fresh else { Issue.record("Expected a fresh nudge from observed pose");return }
+        #expect(a.yaw > 30 && a.yaw < 30.5)
+    }
     @Test func udpDeadlineAndRetiredOwnershipDropQueuedTargets() throws {
         let frame=try #require(Commands.gimbalTimedTarget(yawDeg:20,nativePitchDeg:180,duration:0.1))
         var q=GimbalNativeTargetStream();q.begin(token:1)

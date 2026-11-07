@@ -683,6 +683,9 @@ extension AppModel {
             if let previousHold,mobile.hold == nil { recordEvent("mobile_resumed",detail:previousHold.rawValue+"; no_catchup") }
         case .stop:
             camera.stopTargets(); recordEvent("mobile_motion_stopped",detail:mobile.hold?.rawValue ?? "settle_budget")
+        case .rebase:
+            camera.stopTargets()
+            recordEvent("mobile_live_pose_rebase",detail:"one_timed_move_lead_exceeded; no_old_target_or_calibration_reset")
         case .referenceLost:
             camera.stopTargets(); notice="耳机参考不连续，请平视并重新居中"
             recordEvent("mobile_reference_lost",detail:"sensor_clock_or_quaternion_discontinuity")

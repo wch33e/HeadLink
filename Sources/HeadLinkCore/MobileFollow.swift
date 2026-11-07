@@ -7,7 +7,7 @@ public enum MobileHold: String, Sendable {
 /// Relative nudges in the Pocket protocol axes. This is neither a body estimator nor world lock.
 /// Inputs are local monotonic receipts; the two devices' sensor clocks are never subtracted.
 public struct MobileFollow: Sendable {
-    public enum Decision: Equatable, Sendable { case idle, stop, referenceLost, target(Angles, nativePitch: Double, expiresAt: Double) }
+    public enum Decision: Equatable, Sendable { case idle, stop, rebase, referenceLost, target(Angles, nativePitch: Double, expiresAt: Double) }
     public private(set) var running = false
     public private(set) var reference: HeadDirectionReference?
     public private(set) var hold: MobileHold?
@@ -160,6 +160,15 @@ public struct MobileFollow: Sendable {
         command = next
         let encodedYaw = (command.yaw * 10).rounded() / 10
         guard abs(encodedYaw - pose.angles.yaw) < 180 else { return interruption(.path, now) }
+        // The observed camera may move independently during a gesture. Never chase the
+        // old command farther than one existing 100 ms move at the 120 degree/s ceiling.
+        // This is a lead budget, not a mechanical bound or an estimate of body motion.
+        let lead = 120.0 * 0.1
+        if abs(encodedYaw - pose.angles.yaw) > lead || abs(command.pitch - pose.angles.pitch) > lead {
+            deadband = nextLook
+            seed(pose, at: now)
+            return .rebase
+        }
         let native = Orientation.wrap(pose.nativePitch - (command.pitch - pose.angles.pitch))
         return .target(command, nativePitch: native, expiresAt: head.receivedAt + 0.2)
     }
