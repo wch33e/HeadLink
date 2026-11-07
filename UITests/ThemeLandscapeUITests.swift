@@ -50,7 +50,7 @@ import UIKit
         app.buttons["closeSettings"].tap()
     }
     func testSystemThemeChangesInOpenSheetManualOverrideAndPersistence() {
-        launch();startAndRecord();openDetails()
+        launch();chooseAppearance("跟随系统");startAndRecord();openDetails()
         assertFollowingAndRecording();let state=pipeline()
         app.buttons["fixtureSystemLight"].tap();wait(app.staticTexts["fixtureHostTheme"],"label == %@","host_light",timeout:20);wait(app.staticTexts["fixtureTheme"],"label == %@","theme_light",timeout:20)
         capture("theme-system-light-open-details")

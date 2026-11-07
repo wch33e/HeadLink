@@ -10,6 +10,14 @@ import OpenCineDJIApple
     let instanceID=UUID().uuidString
     @ObservationIgnored private var loggedInvalidation:UInt64=0
     @ObservationIgnored var controller=TrackingController()
+    @ObservationIgnored var mobile=MobileFollow()
+    @ObservationIgnored private var mobileReading:MotionReading?
+    @ObservationIgnored private var mobilePose:CameraPose?
+    @ObservationIgnored private var mobileEpoch:UInt64?
+    var isMobile:Bool { mountMode == .movingRelative }
+    var mobileGain:Double = 1 { didSet { pause(); UserDefaults.standard.set(mobileGain,forKey:"mobileGain") } }
+    var reverseMobileYaw=false { didSet { pause(); UserDefaults.standard.set(reverseMobileYaw,forKey:"reverseMobileYaw") } }
+    var reverseMobilePitch=false { didSet { pause(); UserDefaults.standard.set(reverseMobilePitch,forKey:"reverseMobilePitch") } }
     @ObservationIgnored var probe=MotionProbe()
     @ObservationIgnored var commissioning=CommissioningSession()
     var motionLabel="未准备好"
@@ -37,7 +45,14 @@ import OpenCineDJIApple
     @ObservationIgnored private var lastMotionGeneration:UInt64?
     var axes:ControlAxes = .both { didSet { pause(); controller.axes=axes; UserDefaults.standard.set(axes.rawValue,forKey:"axes") } }
     var mountMode:MountMode = .fixed { didSet {
-        if oldValue != mountMode { revokeExperiment(); UserDefaults.standard.set(mountMode.rawValue,forKey:"mountMode") }
+        if oldValue != mountMode {
+            camera.stopTargets(); mobile = .init(); controller.pause(invalidateCalibration:controller.state == .calibrating)
+            commissioning = .init(); showingCalibration=false; camera.allowMobileRecovery=isMobile
+            UserDefaults.standard.set(mountMode.rawValue,forKey:"mountMode")
+            notice=isMobile ? "移动相对模式：明确开始后才会发送目标" : "已切换固定模式；请明确开始"
+            recordEvent("mount_mode_changed",detail:mountMode.rawValue)
+            publishPresentation()
+        }
     } }
     @ObservationIgnored private var feedback=FollowFeedbackMonitor()
     var feedbackReading:FollowFeedbackReading? { feedback.reading }
@@ -55,8 +70,9 @@ import OpenCineDJIApple
     @ObservationIgnored private var errorSince:Double?
     var headAge:Double? { controller.sample.map { now-$0.receivedAt } }
     var profileReady:Bool { controller.limits?.valid == true }
-    var isFollowing:Bool { controller.state == .following }
+    var isFollowing:Bool { isMobile ? mobile.running : controller.state == .following }
     var trackingStatus:String {
+        if isMobile { return mobileStatus }
         if controller.state == .stalePaused,calibrationBlockers.isEmpty,!controller.hasCalibration { return "输入已恢复，等待重新校准" }
         return stateLabel(controller.state)
     }
@@ -65,8 +81,11 @@ import OpenCineDJIApple
         guard let sample=controller.sample,let gravity=sample.gravity else { return false }
         return (try? HeadDirectionReference(origin:sample.attitude,gravity:gravity)) != nil
     }
-    var rangeLimited:Bool { isFollowing && controller.output?.limitedByRange == true && controller.pose?.fresh(at:now) == true }
+    var rangeLimited:Bool {
+        isFollowing && (isMobile ? mobile.limited && mobile.hold == nil : controller.output?.limitedByRange == true) && camera.freshPose != nil
+    }
     var shortShootingStatus:String {
+        if isMobile { return mobileStatus }
         if !camera.connected { return "相机未连接" }
         if !camera.transportHealthy { return "控制传输未就绪" }
         if controller.pose?.fresh(at:now) != true { return "等待镜头姿态" }
@@ -87,9 +106,9 @@ import OpenCineDJIApple
     /// Shared by the live sheet and the action; evaluated against the same captured inputs/clock.
     var calibrationBlockers:[String] { calibrationIssues.map(\.message) }
     var calibrationIssues:[CalibrationIssue] {
+        if isMobile { return mobileIssues }
         var result:[CalibrationIssue]=[]
         func add(_ id:String,_ message:String) { result.append(.init(id:id,message:message)) }
-        if mountMode != .fixed { add("mount","移动机身补偿未验证，当前只支持固定机身") }
         if commissioning.running { add("experiment","旧诊断实验仍在进行，请先停止") }
         if !camera.connected { add("session","相机控制会话未连接") }
         if !camera.transportHealthy { add("transport","相机控制传输未就绪") }
@@ -110,11 +129,11 @@ import OpenCineDJIApple
     }
     var blockers:[String] { startIssues.map(\.message) }
     var startIssues:[CalibrationIssue] {
+        if isMobile { return mobileIssues }
         var result:[CalibrationIssue]=[]
         func add(_ id:String,_ message:String) { result.append(.init(id:id,message:message)) }
         if !camera.connected { add("session","相机未连接") }
         if !camera.transportHealthy { add("transport","相机传输未就绪") }
-        if mountMode != .fixed { add("mount","移动机身补偿未验证：目前没有独立机身朝向，不允许用固定机身映射跟随，避免重复转动") }
         if !(headAge.map{$0 <= controller.freshnessThreshold} ?? false) { add("head_pose","未收到新鲜耳机姿态（需小于200ms）") }
         if !gravityAvailable { add("gravity","耳机重力参考缺失或头部接近竖直，无法建立水平朝向") }
         if controller.pose?.fresh(at:now) != true { add("camera_pose","镜头姿态缺失或超过300ms") }
@@ -136,17 +155,22 @@ import OpenCineDJIApple
         response=ResponseMode(rawValue:UserDefaults.standard.string(forKey:"response") ?? "") ?? .immediate
         controller.axes=axes; controller.response=response; controller.requiresGravityReference=true
         mountMode=MountMode(rawValue:UserDefaults.standard.string(forKey:"mountMode") ?? "fixed") ?? .fixed
+        camera.allowMobileRecovery=isMobile
+        let savedGain=UserDefaults.standard.double(forKey:"mobileGain")
+        mobileGain=[0.5,0.75,1.0].contains(savedGain) ? savedGain : 1
+        reverseMobileYaw=UserDefaults.standard.bool(forKey:"reverseMobileYaw")
+        reverseMobilePitch=UserDefaults.standard.bool(forKey:"reverseMobilePitch")
         camera.onSessionEvent={ [weak self] kind,detail in
             guard let self else { return }
             recordEvent(kind,detail:detail)
             if kind == "foreground_camera_recovery",detail == "restored_no_motion" {
-                notice="相机通信已恢复；跟随保持停止，请重新校准后明确开始"
+                notice=isMobile ? "相机通信已恢复；请明确开始，不追赶断连期间的动作" : "相机通信已恢复；跟随保持停止，请重新校准后明确开始"
             }
         }
         camera.onVideoEvent={ [weak self] kind,detail in
             guard let self else { return }
             recordEvent(kind,detail:detail)
-            if kind == "video_repair_start",isFollowing {
+            if kind == "video_repair_start",!isMobile,isFollowing {
                 camera.stopTargets(); controller.pause(); pauseReason = .videoRecovery
                 notice="图传恢复开始，已暂停跟随；恢复后不会自动启动，控制状态与视频分别显示"
             }
@@ -188,7 +212,7 @@ import OpenCineDJIApple
         sceneState="inactive"; camera.pauseForInactiveScene()
         recordEvent("scene_inactive",detail:"停止运动但不重建会话；有效校准保留，绝不自动恢复")
         let wasFollowing=isFollowing
-        camera.stopTargets()
+        camera.stopTargets(); mobile.pause()
         controller.pause(invalidateCalibration:controller.state == .calibrating,reason:.sceneInactive)
         if commissioning.running { commissioning.abort(.canceled); controller.limits=nil }
         if wasFollowing { pauseReason = .inactive; notice="应用暂时失去活动状态，已暂停跟随；请回到前台后明确恢复" }
@@ -197,7 +221,7 @@ import OpenCineDJIApple
     func suspendControl() {
         sceneState="background"
         recordEvent("scene_background",detail:"应用进入后台，停止控制并清除本次校准")
-        camera.stopTargets(); controller.pause(invalidateCalibration:true,reason:.sceneBackground); motion.stop(); lastSensor=nil; probe.reset()
+        camera.stopTargets(); mobile.invalidateReference(); controller.pause(invalidateCalibration:true,reason:.sceneBackground); motion.stop(); lastSensor=nil; probe.reset()
         revokeExperiment(reason:.sceneBackground); loop?.cancel(); loop=nil; UIApplication.shared.isIdleTimerDisabled=false
         publishPresentation()
     }
@@ -217,17 +241,18 @@ import OpenCineDJIApple
     private func synchronizeLimits() {
         let next=formalLimits
         if let old=controller.limits,let next,(old.model != next.model || old.firmware != next.firmware) {
-            camera.stopTargets(); controller.pause(invalidateCalibration:true,reason:.configurationChanged)
+            camera.stopTargets(); mobile.pause(); controller.pause(invalidateCalibration:true,reason:.configurationChanged)
             recordEvent("protocol_identity_changed",detail:"model_or_reported_firmware_changed")
         }
         if next == nil,controller.hasCalibration {
-            camera.stopTargets(); controller.pause(invalidateCalibration:true,reason:.configurationChanged)
+            camera.stopTargets(); mobile.pause(); controller.pause(invalidateCalibration:true,reason:.configurationChanged)
         }
         controller.limits=next
     }
     private func captureInputs() {
         let frame=ControlInputFrame.capture(readMotion:readMotion,readCamera:{camera.capturePose()},clock:{camera.now})
         now=frame.evaluatedAt; callbackHz=frame.motion.callbackHz
+        mobileReading=frame.motion; mobilePose=frame.camera
         loopGap=lastStepAt.map{now-$0} ?? 0
         let wasFollowing=isFollowing
         let wasCalibrating=controller.state == .calibrating
@@ -237,9 +262,13 @@ import OpenCineDJIApple
         let newSourceError=frame.motion.sourceErrorCount.map{$0 > (lastMotionSourceErrors ?? 0)} ?? false
         if let count=frame.motion.sourceErrorCount { lastMotionSourceErrors=count }
         if frame.motion.failed || newSourceError || sourceRestarted {
-            camera.stopTargets(); controller.motionUnavailable(); probe.reset()
+            if isMobile {
+                if sourceRestarted { mobile.invalidateReference(); camera.stopTargets() }
+                else { holdMobile(.headStale) }
+            } else { camera.stopTargets() }
+            controller.motionUnavailable(); probe.reset(); lastSensor=nil
             if sourceRestarted { recordEvent("motion_session_changed",detail:"new_generation; calibration_invalidated") }
-            if newSourceError { recordEvent("motion_callback_error",detail:frame.motion.failed ? "callback_error_active" : "callback_error_recovered_before_read; calibration_still_invalidated") }
+            if newSourceError { recordEvent("motion_callback_error",detail:isMobile ? "mobile_hold; continuity_checked_before_resume" : (frame.motion.failed ? "callback_error_active" : "callback_error_recovered_before_read; calibration_still_invalidated")) }
         }
         if camera.connected != connectedBefore { controller.connectionChanged(camera.connected); connectedBefore=camera.connected }
         if let s=frame.motion.sample,s.sensorTime != lastSensor {
@@ -262,7 +291,7 @@ import OpenCineDJIApple
         else { label="运动服务已启动，等待新姿态样本" }
         if motionLabel != label { motionLabel=label }
         let sourceReason=sourceRestarted ? "耳机运动会话已更换，原校准已失效" : ((frame.motion.failed || newSourceError) ? (frame.motion.failed ? "耳机运动回调报告错误" : "耳机曾报告回调错误，输入已恢复，但原校准已失效") : nil)
-        if wasFollowing && !isFollowing { stopAfterInputFailure(reasonOverride:sourceReason) }
+        if !isMobile && wasFollowing && !isFollowing { stopAfterInputFailure(reasonOverride:sourceReason) }
         if wasCalibrating,controller.state != .calibrating {
             let reason=sourceReason ?? controller.invalidation?.reason.message ?? inputFailureDescription()
             notice="校准已中断："+reason
@@ -271,17 +300,21 @@ import OpenCineDJIApple
     }
     func step() {
         recoverMotionIfNeeded()
+        if camera.mobileRecoveryRequested,sceneState == "active" {
+            camera.mobileRecoveryRequested=false
+            if isMobile { camera.resumeAfterForeground() }
+        }
         camera.checkHealth(); camera.checkVideoHealth(); captureInputs()
         loopGap=lastStepAt.map{now-$0} ?? 0; lastStepAt=now
         defer { publishPresentation() }
         synchronizeLimits()
-        if let reason=camera.followModeBlock(at:now),(commissioning.state != .inactive || isFollowing || controller.hasCalibration) {
+        if !isMobile,let reason=camera.followModeBlock(at:now),(commissioning.state != .inactive || isFollowing || controller.hasCalibration) {
             revokeExperiment(reason:.modeChanged); notice=reason
         }
         if camera.connected,now-controlInfoAt >= 2 {
             camera.refreshControlInfo(); controlInfoAt=now
         }
-        if isFollowing,controller.pose?.fresh(at:now) == true,let reason=camera.controlModeReadiness(at:now) {
+        if !isMobile,isFollowing,controller.pose?.fresh(at:now) == true,let reason=camera.controlModeReadiness(at:now) {
             camera.stopTargets(); controller.pause(); pauseReason = .mode
             recordEvent("mode_readiness_paused",detail:reason)
             notice="跟随已暂停："+reason+"；恢复模式回报后可明确继续"
@@ -293,7 +326,9 @@ import OpenCineDJIApple
                 catch { recordEvent("calibration_interrupted",detail:inputFailureDescription()); notice="校准暂停："+inputFailureDescription() }
             }
         }
-        if commissioning.running {
+        if isMobile {
+            stepMobile()
+        } else if commissioning.running {
             if let command=commissioning.tick(at:now,pose:camera.freshPose) {
                 if camera.submit(angles:command.angles,nativePitch:command.nativePitch) { commissioning.noteSubmitted() }
                 else { commissioning.abort(.transport) }
@@ -331,8 +366,8 @@ import OpenCineDJIApple
         }
         if (UserDefaults.standard.bool(forKey:"recordDiagnostics") || commissioning.state != .inactive || profileReady),now-diagnosticAt >= 0.1 {
             diagnosticAt=now
-            diagnostics.append(.init(uptime:now,state:controller.state.rawValue,headAge:headAge,
-                head:controller.head,probe:probe.look,raw:controller.rawTarget,command:camera.lastSubmittedAngles,
+            diagnostics.append(.init(uptime:now,state:isMobile ? mobileDiagnosticState : controller.state.rawValue,headAge:headAge,
+                head:isMobile ? mobile.headAngles : controller.head,probe:probe.look,raw:isMobile ? mobile.goal : controller.rawTarget,command:camera.lastSubmittedAngles,
                 actual:camera.freshPose?.angles,nativePitch:camera.freshPose?.nativePitch,callbackHz:callbackHz,sendHz:sendHz,
                 testState:commissioning.state.rawValue,commandIssue:camera.lastCommandIssue,
                 cameraAge:controller.pose.map{now-$0.receivedAt},loopGap:loopGap,
@@ -358,7 +393,7 @@ import OpenCineDJIApple
             loggedInvalidation=invalidation.sequence
             recordEvent("calibration_invalidated",detail:invalidation.reason.rawValue)
         }
-        let state=ControlPresentation(state:controller.state,canStart:isFollowing ? false : canStart,
+        let state=ControlPresentation(mobileState:isMobile ? mobileDiagnosticState : nil,state:controller.state,canStart:isFollowing ? false : canStart,
             canCalibrate:canCalibrate,profileReady:profileReady,hasCalibration:controller.hasCalibration,
             cameraFresh:camera.freshPose != nil,controlFresh:camera.controlReceiveFresh,previewLive:camera.previewLive,
             pictureAspect:Double(camera.decoder.pictureAspect),firmware:camera.status.firmware,recording:camera.actualRecording,
@@ -371,8 +406,8 @@ import OpenCineDJIApple
     }
     private func recordEvent(_ kind:String,detail:String) {
         let time=camera.now
-        events.append(.init(uptime:time,kind:kind,detail:detail,state:controller.state.rawValue,
-            hasCalibration:controller.hasCalibration,cameraConnected:camera.connected,
+        events.append(.init(uptime:time,kind:kind,detail:detail,state:isMobile ? mobileDiagnosticState : controller.state.rawValue,
+            hasCalibration:isMobile ? mobile.reference != nil : controller.hasCalibration,cameraConnected:camera.connected,
             transportHealthy:camera.transportHealthy,headAge:controller.sample.map{time-$0.receivedAt},
             cameraAge:camera.pose.map{time-$0.receivedAt},loopGap:loopGap,nativeWrites:camera.nativeWrites,connectionEpoch:camera.connectionEpoch,calibrationID:controller.calibrationID,
             mode:camera.modeSummary,firmware:currentIdentity.firmware,cameraAngles:camera.pose?.angles))
@@ -402,12 +437,13 @@ import OpenCineDJIApple
         notice="跟随已暂停："+reason+"；需要重新校准。这不等同于相机断连。"
     }
     func resetProbe() { defer { publishPresentation() }; probe.reset(); notice="头部观察零点已重设；请分别左右转头、抬头低头，仅用于检查数据，不会转动云台" }
-    func retryMotion() { motionRecovery.beginForeground(); defer { publishPresentation() }; motion.stop(); lastSensor=nil; controller.motionUnavailable(); probe.reset(); camera.stopTargets(); motion.start() }
+    func retryMotion() { mobile.invalidateReference(); motionRecovery.beginForeground(); defer { publishPresentation() }; motion.stop(); lastSensor=nil; controller.motionUnavailable(); probe.reset(); camera.stopTargets(); motion.start() }
     func revokeExperiment(reason:CalibrationInvalidationReason = .configurationChanged) { defer { publishPresentation() };
-        camera.stopTargets(); controller.pause(invalidateCalibration:true,reason:reason); controller.limits=nil
+        camera.stopTargets(); mobile.pause(); controller.pause(invalidateCalibration:true,reason:reason); controller.limits=nil
         commissioning = .init(); errorSince=nil
     }
     func calibrate() {
+        if isMobile { startMobile(run:mobile.running, recenter:true); return }
         defer { publishPresentation() }
         camera.checkHealth(); camera.stopTargets()
         captureInputs(); synchronizeLimits()
@@ -416,6 +452,7 @@ import OpenCineDJIApple
         catch { notice="校准未开始："+((error as? TrackingError) == .gravityUnavailable ? "耳机重力参考不可用" : String(describing:error)); recordEvent("calibration_rejected",detail:notice ?? "unknown") }
     }
     func start() {
+        if isMobile { startMobile(run:true, recenter:false); return }
         defer { publishPresentation() }
         camera.checkHealth(); captureInputs(); synchronizeLimits()
         recordEvent("start_requested",detail:"user_action")
@@ -440,12 +477,13 @@ import OpenCineDJIApple
     func pause() { defer { publishPresentation() };
         pauseReason = .user
         recordEvent("user_paused",detail:"user_action")
-        camera.stopTargets(); controller.pause(); errorSince=nil
+        camera.stopTargets(); mobile.pause(); controller.pause(); errorSince=nil
         if commissioning.running { commissioning.abort(.canceled); controller.limits=nil }
         notice="跟随已暂停；已尝试发送停止，未收到停止ACK。机身移动时不保证锁定世界方向。"
     }
-    func clearCalibration(reason:String = "user_action") { defer { publishPresentation() }; camera.stopTargets(); controller.pause(invalidateCalibration:true,reason:.userCleared); recordEvent("calibration_clear_requested",detail:reason) }
+    func clearCalibration(reason:String = "user_action") { defer { publishPresentation() }; camera.stopTargets(); mobile.invalidateReference(); controller.pause(invalidateCalibration:true,reason:.userCleared); recordEvent("calibration_clear_requested",detail:reason) }
     var feedbackSummary:String {
+        if isMobile { return "移动相对控制：镜头回报用于当前目标与安全检查，不以世界锁定误差判定断连" }
         guard let r=feedback.reading else { return "相机姿态核对：尚未运行" }
         let state:String
         switch r.state {
@@ -469,7 +507,7 @@ import OpenCineDJIApple
                 firmwareSource:currentIdentity.firmwareSource,mode:camera.modeSummary,attitudeLength:camera.lastAttitudeLength,
                 attitudeFrames:camera.attitudeFrames,poseFrames:camera.poseFrames,probeMovementObserved:probe.movementObserved,
                 motionAvailable:motion.available,motionAuthorization:Int(motion.authorization.rawValue),
-                controllerState:controller.state.rawValue,trackingFailure:controller.failure.map{String(describing:$0)},
+                controllerState:isMobile ? mobileDiagnosticState : controller.state.rawValue,trackingFailure:controller.failure.map{String(describing:$0)},
                 blockers:blockers,receipts:commissioning.receipts,pendingReceipt:commissioning.pendingReceipt,
                 limits:controller.limits,stopAttemptAt:camera.lastStopAttemptAt,
                 targetSubmissions:camera.targetSubmissions,nativeWrites:camera.nativeWrites,
@@ -482,7 +520,9 @@ import OpenCineDJIApple
                 appInstanceID:instanceID,connectionEpoch:camera.connectionEpoch,calibrationID:controller.calibrationID,
                 lastStartRejection:controller.lastStartRejection,currentStartBlocker:controller.startBlocker(at:now),calibrationInvalidation:controller.invalidation,
                 video:camera.videoDiagnostic,videoHistory:camera.videoHistory,
-                mountMode:mountMode.rawValue,gravityReferenceRequired:controller.requiresGravityReference,feedback:feedback.reading,
+                mountMode:isMobile ? "movingRelative" : "fixed",gravityReferenceRequired:controller.requiresGravityReference,feedback:isMobile ? nil : feedback.reading,
+                mobileGoal:isMobile ? mobile.goal : nil,mobileHold:isMobile ? mobile.hold?.rawValue : nil,
+                mobileReference:isMobile ? mobile.reference : nil,mobileBodyAttitudeAvailable:isMobile ? false : nil,
                 calibrationCameraAngles:controller.calibrationCameraPose?.angles,calibrationNativePitch:controller.calibrationCameraPose?.nativePitch,
                 headQuaternion:controller.sample?.attitude,headGravity:controller.sample?.gravity,directionReference:controller.directionReference,
                 motionSource:motion.diagnostic,motionConsumerGap:lastMotionConsumerGap,attitudeTrace:camera.attitudeTrace,
@@ -522,6 +562,7 @@ struct DiagnosticContext:Codable {
     let lastStartRejection:TrackingStartRejection?; let currentStartBlocker:TrackingStartRejection?; let calibrationInvalidation:CalibrationInvalidation?
     let video:VideoDiagnostic?; let videoHistory:[VideoDiagnostic]
     let mountMode:String; let gravityReferenceRequired:Bool; let feedback:FollowFeedbackReading?
+    let mobileGoal:Angles?; let mobileHold:String?; let mobileReference:HeadDirectionReference?; let mobileBodyAttitudeAvailable:Bool?
     let calibrationCameraAngles:Angles?; let calibrationNativePitch:Double?
     let headQuaternion:Quaternion?; let headGravity:DirectionVector?; let directionReference:HeadDirectionReference?
     let motionSource:MotionDeliveryDiagnostic; let motionConsumerGap:Double?; let attitudeTrace:DjiAppleAttitudeTrace?
@@ -547,7 +588,7 @@ func commissioningFailure(_ reason:CommissioningError?) -> String {
 }
 
 private struct ControlPresentation:Equatable {
-    let state:TrackingState; let canStart:Bool; let canCalibrate:Bool; let profileReady:Bool; let hasCalibration:Bool
+    let mobileState:String?; let state:TrackingState; let canStart:Bool; let canCalibrate:Bool; let profileReady:Bool; let hasCalibration:Bool
     let cameraFresh:Bool; let controlFresh:Bool; let previewLive:Bool; let pictureAspect:Double; let firmware:String?; let recording:Bool?; let recordingSeconds:Int
     let testState:CommissioningState; let receiptCount:Int; let probeReady:Bool; let rangeLimited:Bool
 }
@@ -556,4 +597,106 @@ struct ControlEvent:Codable {
     let cameraConnected:Bool; let transportHealthy:Bool; let headAge:Double?; let cameraAge:Double?
     let loopGap:Double; let nativeWrites:Int; let connectionEpoch:UInt64; let calibrationID:UInt64
     let mode:String; let firmware:String; let cameraAngles:Angles?
+}
+
+extension AppModel {
+    private var mobileDiagnosticState:String {
+        (mobile.running ? "mobile_active" : "mobile_stopped") + (mobile.hold.map { ":" + $0.rawValue } ?? "")
+            + (mobile.limited ? ":limited" : "") + (mobile.reference == nil ? ":no_reference" : "")
+    }
+    private var mobileStatus:String {
+        if !camera.connected { return "相机未连接" }
+        if !camera.transportHealthy { return "控制传输暂缓" }
+        if let hold=mobile.hold {
+            switch hold {
+            case .headStale:return mobile.running ? "等耳机数据" : "耳机已暂停"
+            case .cameraStale:return "等镜头回报"
+            case .mode:return "等相机 Follow"
+            case .path:return "转动路径受限"
+            case .command:return mobile.running ? "命令暂缓" : "命令失败 · 已停"
+            case .feedback:return "回报偏差 · 已停"
+            case .scheduler:return "控制节拍暂缓"
+            case .reference:return "请重新居中"
+            case .transport:return "控制传输暂缓"
+            }
+        }
+        if rangeLimited { return "目标到转动边界" }
+        if mobile.running { return "移动相对控制" }
+        return mobileIssues.first?.message ?? "移动相对 · 等待开始"
+    }
+    private var mobileIssues:[CalibrationIssue] {
+        var list:[CalibrationIssue]=[]
+        if sceneState == "inactive" || sceneState == "background" { list.append(.init(id:"scene",message:"返回前台后开始")) }
+        if !camera.connected { list.append(.init(id:"session",message:"相机未连接")) }
+        else if !camera.transportHealthy { list.append(.init(id:"transport",message:"控制传输未就绪")) }
+        if mobileReading?.failed != false || mobileReading?.sample?.fresh(at:now,threshold:0.2) != true {
+            list.append(.init(id:"head_pose",message:"等待新鲜耳机姿态"))
+        } else if !gravityAvailable { list.append(.init(id:"gravity",message:"耳机方向参考不可用")) }
+        if let limits=formalLimits {
+            if let p=mobilePose,p.fresh(at:now) {
+                if limits.clamp(p.angles) != p.angles { list.append(.init(id:"camera_range",message:"镜头回报超出既有范围")) }
+                if let mode=camera.controlModeReadiness(at:now) { list.append(.init(id:"mode",message:mode)) }
+            } else { list.append(.init(id:"camera_pose",message:"等待新鲜镜头回报")) }
+        } else { list.append(.init(id:"profile",message:"当前型号无已核对协议范围")) }
+        return list
+    }
+    private func startMobile(run:Bool,recenter:Bool) {
+        defer { publishPresentation() }
+        captureInputs(); synchronizeLimits()
+        guard mobileIssues.isEmpty else {
+            notice=mobileIssues.map(\.message).joined(separator:"；")
+            recordEvent("mobile_start_blocked",detail:notice ?? "input_unavailable"); return
+        }
+        camera.stopTargets()
+        // The synchronous stop may consume the freshness budget.
+        captureInputs()
+        guard mobileIssues.isEmpty,let freshHead=mobileReading?.sample,let freshPose=mobilePose else {
+            mobile.pause(); notice="停止交接后输入已过期，请等新数据"; return
+        }
+        do {
+            try mobile.start(sample:freshHead,pose:freshPose,at:now)
+            if !run { mobile.pause() }
+            mobileEpoch=camera.connectionEpoch; pauseReason=nil
+            notice=recenter ? "已更新头部参考；未发出物理回中命令" : "移动相对控制：转头拨动，静止时让相机自身 Follow 接管"
+            recordEvent(recenter ? "mobile_head_recentered" : "mobile_started",detail:"current_pose_seeded; no_center_motion")
+        } catch { mobile.invalidateReference(); notice="头部参考不可用，请自然平视后再试" }
+    }
+    private func holdMobile(_ reason:MobileHold) {
+        if mobile.interrupt(reason,at:now) {
+            camera.stopTargets()
+            recordEvent("mobile_hold",detail:reason.rawValue)
+        }
+    }
+    private func stepMobile() {
+        guard mobile.running else { camera.stopTargets(); return }
+        guard camera.connectionEpoch == mobileEpoch,camera.connected else {
+            mobile.pause(); camera.stopTargets(); recordEvent("mobile_session_changed",detail:"explicit_start_required"); return
+        }
+        guard camera.transportHealthy else { holdMobile(.transport); return }
+        guard mobileReading?.failed == false else { holdMobile(.headStale); return }
+        guard let limits=formalLimits else { mobile.pause(); camera.stopTargets(); recordEvent("mobile_profile_unavailable",detail:"no_motion"); return }
+        if mobilePose?.fresh(at:now) == true,camera.controlModeReadiness(at:now) != nil { holdMobile(.mode); return }
+        let previousHold=mobile.hold
+        switch mobile.tick(head:mobileReading?.sample,pose:mobilePose,limits:limits,axes:axes,response:response,
+                           gain:mobileGain,reverseYaw:reverseMobileYaw,reversePitch:reverseMobilePitch,at:now) {
+        case .idle:
+            if let previousHold,mobile.hold == nil { recordEvent("mobile_resumed",detail:previousHold.rawValue+"; no_catchup") }
+        case .stop:
+            camera.stopTargets(); recordEvent("mobile_motion_stopped",detail:mobile.hold?.rawValue ?? "settle_budget")
+        case .referenceLost:
+            camera.stopTargets(); notice="耳机参考不连续，请平视并重新居中"
+            recordEvent("mobile_reference_lost",detail:"sensor_clock_or_quaternion_discontinuity")
+        case let .target(angles,nativePitch,expiry):
+            if !camera.hasTargetStream,!camera.startTargets() { holdMobile(.command); return }
+            if case let .rejected(kind)=camera.submitTarget(angles:angles,nativePitch:nativePitch,deadline:expiry) {
+                recordEvent("mobile_target_rejected",detail:kind.rawValue+":"+(camera.lastCommandIssue ?? "unknown"))
+                switch kind {
+                case .pathUnreachable:holdMobile(.path)
+                case .poseUnavailable:holdMobile(.cameraStale)
+                case .transportUnavailable:holdMobile(.transport)
+                default:holdMobile(.command)
+                }
+            }
+        }
+    }
 }

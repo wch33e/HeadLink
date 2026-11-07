@@ -77,6 +77,10 @@ import HeadLinkCore
     @ObservationIgnored var link: DjiAppleDatalink?
     @ObservationIgnored private var scanTask: Task<Void,Never>?
     @ObservationIgnored private var wifiContinue = false
+    var allowMobileRecovery=false
+    @ObservationIgnored var mobileRecoveryRequested=false
+    @ObservationIgnored private var mobileRecoveryUsed=false
+    var hasTargetStream:Bool { targetToken != nil }
     @ObservationIgnored private var targetToken: UInt64?
     @ObservationIgnored private var tokenCounter: UInt64 = 0
     @ObservationIgnored private var connectRun: DjiAppleConnectionRun?
@@ -94,7 +98,7 @@ import HeadLinkCore
                 rebuilding:self?.link?.isRebuilding ?? false)
         }),
         context:{ [weak self] in .init(live:self?.connected == true,ownedConnection:true,
-            pathReady:DjiAppleWiFiJoiner.isCameraPathReady(),sceneActive:self?.sceneActive == true,holdsMonitor:false,foregroundChecking:self?.foregroundRecovery.running == true,feedRepairing:self?.videoRecoveryTask != nil) },event:{ [weak self] event in
+            pathReady:DjiAppleWiFiJoiner.isCameraPathReady(),sceneActive:self?.sceneActive == true,holdsMonitor:false,foregroundChecking:self?.foregroundRecovery.running == true,feedRepairing:self?.videoRecoveryTask != nil,controlReceiveFresh:self?.healthEvidence().controlFresh == true) },event:{ [weak self] event in
             if event == .cameraPathLost { self?.disconnect(reason:"camera_path_lost") }
         })
     func heartbeatStartAfterRecovery() { heartbeat.start(monitorMaintenanceEnabled:true) }
@@ -232,7 +236,7 @@ import HeadLinkCore
     func submit(_ output: TrackingOutput) -> Bool { submitTarget(output).accepted }
     func submit(angles:Angles,nativePitch:Double) -> Bool { submitTarget(angles:angles,nativePitch:nativePitch).accepted }
     func submitTarget(_ output:TrackingOutput) -> TargetSubmission { submitTarget(angles:output.command,nativePitch:output.nativePitch) }
-    func submitTarget(angles:Angles,nativePitch:Double) -> TargetSubmission {
+    func submitTarget(angles:Angles,nativePitch:Double,deadline:Double? = nil) -> TargetSubmission {
         func reject(_ kind:CameraTargetRejection,_ detail:String) -> TargetSubmission {
             lastTargetRejection=kind; lastCommandIssue=detail; return .rejected(kind)
         }
@@ -247,7 +251,7 @@ import HeadLinkCore
         guard let frame=Commands.gimbalTimedTarget(yawDeg:angles.yaw,nativePitchDeg:nativePitch,duration:0.1) else {
             return reject(.encodingRejected,"角度被已核实命令编码器拒绝")
         }
-        guard controlEndpoint?.noteNativeTarget(frame,token:token) == true else {
+        guard controlEndpoint?.noteNativeTarget(frame,token:token,deadline:deadline) == true else {
             return reject(.mailboxRejected,"目标队列拒绝：需核查底层新鲜度、所有权或可达路径；未判定整机断连")
         }
         let encodedNative=(nativePitch*10).rounded()/10
@@ -341,6 +345,10 @@ import HeadLinkCore
     }
     func disconnect(reason:String = "user_request",preservingRecovery:Bool = false) {
         let wasConnected=connected
+        let recoverable=["camera_path_lost","local_endpoint_closed","local_transport_unavailable_without_control_1s",
+            "camera_subnet_absent_transport_unavailable_1s","shared_transport_repair_failed","shared_transport_repair_timeout_10s"]
+        let original = (allowMobileRecovery && !mobileRecoveryUsed && connected && sceneActive && recoverable.contains(reason))
+            ? selected.flatMap { sighting in sessionSSID.map { (sighting:sighting,ssid:$0) } } : nil
         if !preservingRecovery { foregroundRecovery.cancel(); resumeTarget=nil; recoveryMessage=nil }
         onSessionEvent?("session_will_close",reason)
         captureVideoDiagnostic()
@@ -355,6 +363,10 @@ import HeadLinkCore
         lastSubmittedAngles=nil; lastSubmittedNativePitch=nil; targetSubmissions=0; lastCommandIssue=nil; lastTargetRejection=nil; lastStopAttemptAt=nil
         connected=false; connectedAt=nil; sessionHealth = .init(); lastControlFrameAt=nil; pose=nil; status = .init(); statusAt=nil; recordingAt=nil
         recordPending=nil; recordDeadline=nil; wifiRequest=nil; message="未连接"; sessionSSID=nil; network.stop()
+        if let original {
+            resumeTarget=original; mobileRecoveryUsed=true; mobileRecoveryRequested=true; foregroundRecovery.arm()
+        } else { mobileRecoveryRequested=false }
+        if reason == "replace_connection" || reason == "user_request" { mobileRecoveryUsed=false }
         if wasConnected { onDisconnected?() }
     }
 }

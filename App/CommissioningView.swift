@@ -24,7 +24,7 @@ struct ReadinessForm:View {
                     Picker("安装方式",selection:$model.mountMode) {
                         ForEach(MountMode.allCases,id:\.self) { Text(LocalizedStringKey($0.title)).tag($0) }
                     }
-                    DisclosureGroup("安装要求") { Text("本版请将Pocket机身竖直固定，云台自由活动；不支持倾斜安装的世界坐标转换。固定模式不补偿支架转动。移动机身需要独立机身姿态和安装外参，不能从云台关节角反推身体朝向；移动模式未验证，不允许以固定映射运动。") }
+                    DisclosureGroup("安装要求") { Text("固定模式需机身竖直。移动模式请用 Follow，关闭相机主动跟踪。移动相对控制允许拨动镜头，不估算机身姿态，不锁定世界方向。") }
                 }.listRowBackground(HeadLinkUI.group)
                 Section("耳机真实输入") {
                     LabeledContent("状态",value:model.motionLabel)

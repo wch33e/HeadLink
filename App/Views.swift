@@ -112,7 +112,16 @@ struct RootView:View {
     private func primaryActions(vertical:Bool) -> some View {
         let layout=vertical ? AnyLayout(VStackLayout(spacing:8)) : AnyLayout(HStackLayout(spacing:8))
         return layout {
-            calibrateButton.environment(\.layoutDirection,.leftToRight)
+            HStack(spacing:4) {
+                calibrateButton
+                Menu {
+                    Button("固定机身") { model.mountMode = .fixed }
+                    Button("移动机身（相对）") { model.mountMode = .movingRelative }
+                } label: {
+                    Label(model.isMobile ? "移动" : "固定",systemImage:"chevron.up.chevron.down")
+                        .font(.caption.weight(.medium)).lineLimit(1).frame(minWidth:44,minHeight:44)
+                }.accessibilityLabel(model.isMobile ? "模式：移动相对" : "模式：固定").accessibilityIdentifier("shootingMode")
+            }.environment(\.layoutDirection,.leftToRight)
             followButton.environment(\.layoutDirection,.leftToRight)
             recordButton.environment(\.layoutDirection,.leftToRight)
         }.environment(\.layoutDirection,leftHanded && !vertical ? .rightToLeft : .leftToRight)
@@ -120,14 +129,17 @@ struct RootView:View {
     }
 
     private var calibrateButton:some View {
-        Button { model.pause(); model.showingCalibration=true } label: {
-            Label("校准",systemImage:"scope").primaryControlLabel()
+        Button {
+            if model.isMobile { model.calibrate() }
+            else { model.pause(); model.showingCalibration=true }
+        } label: {
+            Label(model.isMobile ? "居中" : "校准",systemImage:"scope").primaryControlLabel()
         }.buttonStyle(QuietButtonStyle()).disabled(!model.canCalibrate).accessibilityIdentifier("calibrate")
     }
     private var followButton:some View {
         Button {
             if model.isFollowing { model.pause() }
-            else if model.controller.state == .userPaused { resume=true }
+            else if !model.isMobile && model.controller.state == .userPaused { resume=true }
             else { model.start() }
         } label: {
             Label(dynamicType.isAccessibilitySize ? (model.isFollowing ? "暂停" : "开始") : (model.isFollowing ? "暂停跟随" : "开始跟随"),systemImage:model.isFollowing ? "pause.fill" : "play.fill")
@@ -174,7 +186,7 @@ struct RootView:View {
                 if let notice=model.notice { Section { DisclosureGroup("最近操作") { Text(LocalizedStringKey(notice)).font(.footnote) } }.listRowBackground(HeadLinkUI.group) }
                 Section {
                     DisclosureGroup("使用条件") {
-                        Text(model.mountMode == .fixed ? "机身竖直固定 · 重力水平参考 · 倍率1.00" : "移动机身补偿未验证，跟随不可启动").font(.footnote).foregroundStyle(.secondary)
+                        Text(model.mountMode == .fixed ? "机身竖直固定 · 重力水平参考 · 倍率1.00" : "移动相对：头停后交给相机 Follow；不锁定世界方向").font(.footnote).foregroundStyle(.secondary)
                     }
                 }.listRowBackground(HeadLinkUI.group)
             }.headLinkList()

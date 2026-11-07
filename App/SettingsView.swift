@@ -16,7 +16,7 @@ struct SettingsView:View {
                     Picker("控制轴",selection:$model.axes) {
                         Text("左右＋上下").tag(ControlAxes.both); Text("仅左右").tag(ControlAxes.yaw); Text("仅上下").tag(ControlAxes.pitch)
                     }.accessibilityIdentifier("axesSetting")
-                    LabeledContent("倍率",value:"1.00")
+                    if !model.isMobile { LabeledContent("倍率",value:"1.00") }
                     Picker("响应",selection:$model.response) {
                         Text("低延迟").tag(ResponseMode.immediate); Text("轻度平滑").tag(ResponseMode.smooth)
                     }.accessibilityIdentifier("responseSetting")
@@ -26,7 +26,14 @@ struct SettingsView:View {
                 } header: { Text("跟随") }
                 footer: { Text("更改控制设置会暂停跟随；查看说明不影响控制。") }.listRowBackground(HeadLinkUI.group)
                 Section { DisclosureGroup("参数与安装说明") {
-                    Text("平滑只改变过渡，停稳后收敛到原始目标。移动机身补偿未验证，当前没有独立机身姿态输入，移动模式不允许启动，避免身体和云台重复转动。")
+                    Text("固定机身保留原1∶1方向关系。移动机身使用相对拨动；头停后由相机 Follow 接管。无独立机身姿态，不能锁定世界方向或消除平移。")
+                    if model.isMobile {
+                        Picker("移动灵敏度",selection:$model.mobileGain) {
+                            Text("0.50×").tag(0.5); Text("0.75×").tag(0.75); Text("1.00×").tag(1.0)
+                        }
+                        Toggle("移动左右反向",isOn:$model.reverseMobileYaw)
+                        Toggle("移动上下反向",isOn:$model.reverseMobilePitch)
+                    }
                 } }.listRowBackground(HeadLinkUI.group)
                 Section {
                     Button {
@@ -107,7 +114,7 @@ private struct LiveDiagnosticsView:View {
         Form {
             Section { DisclosureGroup("跟随配置与说明") {
                 Text(model.axes == .both ? "左右＋上下 1∶1" : model.axes == .yaw ? "仅左右 1∶1" : "仅上下 1∶1").font(.body.weight(.medium))
-                Text(model.mountMode == .fixed ? "机身竖直固定 · 重力水平参考 · 倍率1.00" : "移动机身补偿未验证，跟随不可启动").font(.footnote).foregroundStyle(.secondary)
+                Text(model.mountMode == .fixed ? "机身竖直固定 · 重力水平参考 · 倍率1.00" : "移动机身 · 相对拨动 · 不锁定世界方向").font(.footnote).foregroundStyle(.secondary)
                 if !model.profileReady { Text("等待匹配真实机型的正式协议配置").foregroundStyle(.orange) }
                 if model.profileReady,let limits=model.controller.limits {
                     Text("正式方向跟随 · 协议可达范围").font(.footnote)
@@ -135,7 +142,7 @@ private struct AboutHeadLinkView:View {
                     Text("源码提交：\(provenance.commit)").font(.footnote.monospaced()).textSelection(.enabled)
                 } else { Text("源码提交未嵌入此测试构建").font(.footnote).foregroundStyle(.secondary) }
                 Text("原生 iPhone 工具，数据在本地处理。无需账号，无广告，不上传运动数据或相机画面。")
-                Text("本版修复固定机身基础流程与输入状态刷新；受控输入测试不代表真机通过，移动机身补偿未实现。").font(.footnote).foregroundStyle(.secondary)
+                Text("固定方向跟随与移动相对控制分别运行。移动相对控制不包含世界坐标补偿，受控输入测试不代表真机通过。").font(.footnote).foregroundStyle(.secondary)
             }.listRowBackground(HeadLinkUI.group)
             Section {
                 NavigationLink("开源许可与署名") {

@@ -16,6 +16,7 @@ struct ShootingDetailsSheet:View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicType
     var body:some View {
+        let _=model.controlRevision
         NavigationStack {
             ScrollView {
                 VStack(alignment:.leading,spacing:16) {
@@ -36,6 +37,9 @@ struct ShootingDetailsSheet:View {
                         if let error=model.camera.recordError { Text(LocalizedStringKey(error)).font(.footnote).foregroundStyle(.red) }
                     }.accessibilityIdentifier("rangeDetails")
                     DisclosureGroup("操作说明") {
+                        if model.isMobile {
+                            Text("机身设为 Follow，关闭 ActiveTrack 和智能跟随。头部转动拨动镜头，头停后交给相机稳定；机身旋转和走路的平移没有世界坐标补偿。居中只更新头部参考，不命令云台回机械中心。")
+                        }
                         Text("连接 → 校准 → 明确开始。头部保持姿势即保持目标，回到基准则镜头回到对应基准。暂停可随时操作，录像独立。")
                         Text("普通目标超限仅限制发送目标；倍率和原基准不变。不可达路径、真实输入失效或发送失败仍分别处理。")
                     }
@@ -60,7 +64,9 @@ struct RangeDetails:View {
     @Bindable var model:AppModel
     var body:some View {
         let _=model.telemetryRevision
-        if let output=model.controller.output {
+        if model.isMobile,let target=model.mobile.goal {
+            Text(String(format:"移动目标 yaw %.1f° / pitch %.1f°",target.yaw,target.pitch)).monospacedDigit()
+        } else if let output=model.controller.output {
             Text(String(format:"原始目标 yaw %.1f° / pitch %.1f°",output.raw.yaw,output.raw.pitch)).monospacedDigit()
             Text(String(format:"合法限位目标 yaw %.1f° / pitch %.1f°",output.limited.yaw,output.limited.pitch)).monospacedDigit()
         }

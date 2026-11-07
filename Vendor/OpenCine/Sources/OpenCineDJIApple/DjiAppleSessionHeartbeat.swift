@@ -38,6 +38,7 @@ public struct DjiAppleHeartbeatContext: Sendable {
     public var live: Bool
     public var ownedConnection: Bool
     public var pathReady: Bool
+    public var controlReceiveFresh: Bool
     public var sceneActive: Bool
     public var holdsMonitor: Bool
     public var browsingMedia: Bool
@@ -49,7 +50,8 @@ public struct DjiAppleHeartbeatContext: Sendable {
     public init(live: Bool = false, ownedConnection: Bool = false, pathReady: Bool = false,
         sceneActive: Bool = false, holdsMonitor: Bool = false, browsingMedia: Bool = false,
         sessionRecovering: Bool = false, foregroundChecking: Bool = false,
-        feedRepairing: Bool = false, formatPoking: Bool = false) {
+        feedRepairing: Bool = false, formatPoking: Bool = false, controlReceiveFresh: Bool = false) {
+        self.controlReceiveFresh = controlReceiveFresh
         self.live = live; self.ownedConnection = ownedConnection; self.pathReady = pathReady
         self.sceneActive = sceneActive; self.holdsMonitor = holdsMonitor
         self.browsingMedia = browsingMedia; self.sessionRecovering = sessionRecovering
@@ -152,7 +154,7 @@ public final class DjiAppleSessionHeartbeat {
         guard running, runGeneration == run, endpointGeneration == endpointID else { return }
         let videoFresh = wire.lastVideoAt.map { timing.wallNow() - $0 < FeedWatchdog.stallThreshold } == true
         if pathRecovery.tick(now: timing.uptime(), pathReady: host.pathReady, videoFresh: videoFresh,
-            sessionActive: host.live && host.sceneActive && !host.holdsMonitor
+            sessionActive: host.live && host.sceneActive && !host.holdsMonitor && !host.controlReceiveFresh
                 && !host.sessionRecovering && host.ownedConnection,
             repairInFlight: host.feedRepairing || wire.rebuilding
                 || host.foregroundChecking || host.formatPoking) {

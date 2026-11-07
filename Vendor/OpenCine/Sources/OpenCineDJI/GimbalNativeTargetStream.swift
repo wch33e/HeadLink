@@ -7,6 +7,7 @@ public struct GimbalNativeTargetStream: Sendable {
     private var pending: Duml.Frame?
     private var lastPayload: [UInt8]?
     private var submittedAt: TimeInterval = 0
+    private var deadline: TimeInterval?
     private var emittedAt: TimeInterval?
 
     public init() {}
@@ -17,9 +18,11 @@ public struct GimbalNativeTargetStream: Sendable {
     }
 
     @discardableResult
-    public mutating func submit(_ frame: Duml.Frame, token: UInt64, now: TimeInterval) -> Bool {
+    public mutating func submit(_ frame: Duml.Frame, token: UInt64, now: TimeInterval, deadline: TimeInterval? = nil) -> Bool {
         guard self.token == token, now.isFinite,
             frame.cmdSet == 4, frame.cmdId == 0x14, frame.payload.count == 8 else { return false }
+        guard deadline.map({ $0.isFinite && $0 >= now }) ?? true else { return false }
+        self.deadline = deadline
         submittedAt = now
         guard frame.payload != lastPayload else { return true }
         lastPayload = frame.payload
@@ -30,7 +33,7 @@ public struct GimbalNativeTargetStream: Sendable {
     /// Returns one target at most; never replays a backlog after a scheduling gap.
     public mutating func next(now: TimeInterval, connectionReady: Bool = true) -> Duml.Frame? {
         guard token != nil, now.isFinite, let frame = pending else { return nil }
-        guard now >= submittedAt, now - submittedAt <= 0.2 else {
+        guard now >= submittedAt, now - submittedAt <= 0.2, deadline.map({now <= $0}) ?? true else {
             pending = nil
             lastPayload = nil
             return nil
@@ -51,6 +54,7 @@ public struct GimbalNativeTargetStream: Sendable {
         pending = nil
         lastPayload = nil
         emittedAt = nil
+        deadline = nil
         return wasActive
     }
 }

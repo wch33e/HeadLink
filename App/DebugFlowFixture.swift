@@ -26,7 +26,7 @@ import OpenCineDJIApple
     func start() { active=true }
     func stop() { active=false }
     func beginNativeTargets(token:UInt64) { self.token=token }
-    func noteNativeTarget(_ frame:Duml.Frame,token:UInt64) -> Bool {
+    func noteNativeTarget(_ frame:Duml.Frame,token:UInt64,deadline:Double?) -> Bool {
         guard self.token == token else { return false }
         actual.yaw=Double(GimbalStick.i16LE(frame.payload,at:0) ?? 0)/10
         nativePitch=Double(GimbalStick.i16LE(frame.payload,at:4) ?? 0)/10

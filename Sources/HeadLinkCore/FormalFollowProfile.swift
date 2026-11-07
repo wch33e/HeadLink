@@ -1,8 +1,9 @@
 import Foundation
 
 public enum MountMode:String,CaseIterable,Sendable {
-    case fixed, movingUnverified
-    public var title:String { self == .fixed ? "机身竖直固定" : "移动机身（补偿未验证）" }
+    case fixed
+    case movingRelative = "movingUnverified"
+    public var title:String { self == .fixed ? "机身竖直固定" : "移动机身（相对）" }
 }
 
 /// Pinned native protocol reach, NOT the personal 5-degree test envelope and NOT

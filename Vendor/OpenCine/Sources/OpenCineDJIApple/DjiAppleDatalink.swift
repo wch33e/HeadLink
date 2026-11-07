@@ -996,10 +996,14 @@
         }
 
         public func noteNativeTarget(_ frame: Duml.Frame, token: UInt64) -> Bool {
+            noteNativeTarget(frame, token: token, deadline: nil)
+        }
+
+        public func noteNativeTarget(_ frame: Duml.Frame, token: UInt64, deadline: Double?) -> Bool {
             guard !closed else { return false }
             return wire.withLock {
                 $0.nativeTargetStream.submit(
-                    frame, token: token, now: ProcessInfo.processInfo.systemUptime)
+                    frame, token: token, now: ProcessInfo.processInfo.systemUptime, deadline: deadline)
             }
         }
 

@@ -82,12 +82,18 @@ extension PocketCamera {
                     videoPolicy.fail("shared_transport_repair_failed")
                     onVideoEvent?("shared_transport_failed",String(describing:error))
                     videoRecoveryTask=nil; videoTimeoutTask?.cancel(); videoTimeoutTask=nil
-                    if !endpoint.isFlowHealthy { disconnect(reason:"shared_transport_repair_failed") }
+                    let evidence=healthEvidence()
+                    if !endpoint.isFlowHealthy,!evidence.controlFresh,!evidence.videoFresh { disconnect(reason:"shared_transport_repair_failed") }
                 }
             }
             videoTimeoutTask=Task { [weak self] in
                 do { try await Task.sleep(for:.seconds(10)) } catch { return }
                 guard let self,self.connectionEpoch == epoch,self.link === endpoint,self.videoRecoveryTask != nil else { return }
+                let evidence=healthEvidence()
+                if evidence.controlFresh || evidence.videoFresh {
+                    onVideoEvent?("shared_transport_slow_ingress_alive","10s; no forced disconnect while data arrives")
+                    return
+                }
                 videoPolicy.fail("shared_transport_repair_timeout_10s")
                 onVideoEvent?("shared_transport_timeout","10s; no automatic camera re-pairing")
                 disconnect(reason:"shared_transport_repair_timeout_10s")

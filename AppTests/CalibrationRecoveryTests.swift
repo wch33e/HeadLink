@@ -46,7 +46,7 @@ private final class ObservationChanges:@unchecked Sendable {
         var stops=0
         var onStop:(()->Void)?
         func beginNativeTargets(token:UInt64) { self.token=token }
-        func noteNativeTarget(_ frame:Duml.Frame,token:UInt64) -> Bool { guard token == self.token else { return false }; targets.append(frame); return true }
+        func noteNativeTarget(_ frame:Duml.Frame,token:UInt64,deadline:Double?) -> Bool { guard token == self.token else { return false }; targets.append(frame); return true }
         func endNativeTargets(token:UInt64) { guard self.token == token else { return }; self.token=nil; stops += 1; onStop?() }
         func send(_ frame:Duml.Frame) -> UInt16 { commands.append(frame); return UInt16(commands.count) }
     }
@@ -435,6 +435,66 @@ private final class ObservationChanges:@unchecked Sendable {
         XCTAssertEqual(f.endpoint.token,token)
         XCTAssertEqual(f.camera.actualRecording,true)
         XCTAssertEqual(f.endpoint.stops,0)
+    }
+
+    func testMobileModeUsesRealAdapterButDoesNotRecreateSourcesOrFightRestingLens() {
+        let f=Fixture()
+        let originalLink=f.camera.link,decoder=f.camera.decoder
+        f.model.mountMode = .movingRelative
+        f.model.start()
+        XCTAssertTrue(f.model.isFollowing)
+        XCTAssertTrue(f.endpoint.targets.isEmpty)
+        for i in 1...12 {
+            f.clock.time += 0.025; f.pose(yaw:Double(i)*0.5); f.model.step()
+        }
+        XCTAssertTrue(f.endpoint.targets.isEmpty, "Body-only feedback must not create a head command")
+        f.camera.onVideoEvent?("video_repair_start","repairPresentation")
+        XCTAssertTrue(f.camera.connected && f.model.isFollowing)
+        f.clock.attitude = .axis(0,0,1,degrees:-4)
+        f.clock.time += 0.025; f.pose(yaw:6); f.model.step()
+        XCTAssertFalse(f.endpoint.targets.isEmpty)
+        let count=f.endpoint.targets.count
+        f.model.calibrate()
+        XCTAssertEqual(f.endpoint.targets.count,count, "Recenter must not send a target")
+        f.model.mountMode = .fixed
+        XCTAssertFalse(f.model.isFollowing)
+        XCTAssertNil(f.endpoint.token)
+        XCTAssertTrue(f.camera.link === originalLink && f.camera.decoder === decoder)
+        XCTAssertEqual(f.motion.starts,0)
+    }
+    func testMobileShortInputGapPreservesReferenceButRouteChangeDoesNot() {
+        let f=Fixture(); f.model.mountMode = .movingRelative; f.model.start()
+        f.clock.attitude = .axis(0,0,1,degrees:-2); f.step()
+        f.motion.deliver=false; f.step()
+        XCTAssertTrue(f.model.isFollowing)
+        XCTAssertEqual(f.model.mobile.hold,.headStale)
+        XCTAssertNil(f.endpoint.token)
+        f.motion.deliver=true; f.clock.attitude = .axis(0,0,1,degrees:-8)
+        let before=f.endpoint.targets.count
+        f.step()
+        XCTAssertEqual(f.endpoint.targets.count,before)
+        XCTAssertNil(f.model.mobile.hold)
+        XCTAssertNotNil(f.model.mobile.reference)
+        f.clock.generation += 1; f.step()
+        XCTAssertFalse(f.model.isFollowing)
+        XCTAssertNil(f.model.mobile.reference)
+        XCTAssertTrue(f.camera.connected)
+    }
+    func testMobileDisconnectRetiresCommandsAndNeverResumesAutomatically() {
+        let f=Fixture();f.model.mountMode = .movingRelative; f.model.start()
+        f.clock.attitude = .axis(0,0,1,degrees:-2); f.step()
+        XCTAssertNotNil(f.endpoint.token)
+        f.camera.sessionSSID="Pocket-test"
+        f.camera.disconnect(reason:"local_endpoint_closed")
+        XCTAssertTrue(f.camera.mobileRecoveryRequested)
+        XCTAssertEqual(f.camera.resumeTarget?.ssid,"Pocket-test")
+        XCTAssertFalse(f.model.isFollowing)
+        XCTAssertNil(f.endpoint.token)
+        let sent=f.endpoint.targets.count
+        f.camera.connected=true; f.camera.connectionEpoch += 1; f.camera.link=f.parser
+        f.step()
+        XCTAssertEqual(f.endpoint.targets.count,sent)
+        XCTAssertFalse(f.model.isFollowing)
     }
 
 }
