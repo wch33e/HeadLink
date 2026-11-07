@@ -616,7 +616,7 @@ extension AppModel {
             case .command:return mobile.running ? "命令暂缓" : "命令失败 · 已停"
             case .feedback:return "回报偏差 · 已停"
             case .scheduler:return "控制节拍暂缓"
-            case .reference:return "请重新居中"
+            case .reference:return mobile.reference == nil ? "请重新居中" : "等姿态可用"
             case .transport:return "控制传输暂缓"
             }
         }

@@ -114,7 +114,18 @@ public struct MobileFollow: Sendable {
         let delta = Angles(yaw: axes == .pitch ? 0 : yaw * scale * (reverseYaw ? -1 : 1),
                            pitch: axes == .yaw ? 0 : pitch * scale * (reversePitch ? -1 : 1))
         if released {
-            if delta == .zero { return .idle }
+            if delta == .zero {
+                if edgeDirection.yaw != 0 {
+                    let edge=edgeDirection.yaw < 0 ? limits.yawMin : limits.yawMax
+                    if abs(pose.angles.yaw-edge) > 0.1 { edgeDirection.yaw=0 }
+                }
+                if edgeDirection.pitch != 0 {
+                    let edge=edgeDirection.pitch < 0 ? limits.pitchMin : limits.pitchMax
+                    if abs(pose.angles.pitch-edge) > 0.1 { edgeDirection.pitch=0 }
+                }
+                limited=edgeDirection != .zero
+                return .idle
+            }
             goal = pose.angles; command = pose.angles; filtered = pose.angles
             velocity = .zero; quietAt = nil; released = false
         }

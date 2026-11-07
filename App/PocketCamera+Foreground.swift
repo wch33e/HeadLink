@@ -65,7 +65,7 @@ extension PocketCamera {
         onSessionEvent?("foreground_camera_recovery",event)
         switch event {
         case "checking_original_camera":recoveryMessage="正在核对原相机身份并恢复通信，跟随保持停止"
-        case "restored_no_motion":recoveryMessage="原相机通信已恢复，等待真实预览与状态；请校准后明确开始跟随"
+        case "restored_no_motion":recoveryMessage=allowMobileRecovery ? "原相机通信已恢复；确认预览后明确开始，不追赶过去动作" : "原相机通信已恢复，等待真实预览与状态；请校准后明确开始跟随"
         case "wifi_required":recoveryMessage="未检测到相机网段：请到系统设置→Wi-Fi 加入原相机网络，返回后点恢复原相机"
         case "wrong_camera":recoveryMessage="当前网络上的相机身份与原设备不一致；请加入原相机 Wi-Fi 后重试"
         default:recoveryMessage="原相机通信或身份核对未完成：请确认机身保持开机与连接状态、关闭 Mimo，并核对本地网络权限；点恢复原相机重试，必要时在机身确认连接"
